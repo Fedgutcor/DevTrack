@@ -1,0 +1,59 @@
+[project]
+name = "devtrack"
+version = "0.1.0"
+description = "Local-first dev activity tracker — lines written, files edited, AI usage summaries"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Ultragresion", email = "fedgutcor@gmail.com" }
+]
+keywords = ["developer-tools", "activity-tracker", "productivity", "local-first", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "aiosqlite>=0.19.0",
+    "watchdog>=4.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0",
+    "pyfiglet>=1.0.2",
+]
+
+[project.optional-dependencies]
+ollama = ["httpx>=0.27.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+devtrack = "devtrack.cli:main"
+devtrack-server = "devtrack.main:run"
+
+[project.urls]
+Homepage = "https://github.com/ultragresion/devtrack"
+Repository = "https://github.com/ultragresion/devtrack"
+"Bug Tracker" = "https://github.com/ultragresion/devtrack/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
