@@ -103,3 +103,9 @@ rm -rf ~/.local/share/devtrack/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).  
 Spanish speakers: see [docs/es/contribuir.md](docs/es/contribuir.md).
+
+---
+
+## Made by
+
+Built by [Ultragresion](https://ultragresion.com) — because saying *"I wrote a lot of code today"* hits different when you have a heatmap to prove it.

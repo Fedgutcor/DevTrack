@@ -103,3 +103,9 @@ rm -rf ~/.local/share/devtrack/
 ## Contribuir
 
 Ver la guía completa en [docs/es/contribuir.md](docs/es/contribuir.md).
+
+---
+
+## Creado por
+
+Hecho por [Ultragresion](https://ultragresion.com) — porque decir *"hoy programé un montón"* suena muy diferente cuando tienes el heatmap para demostrarlo.
