@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """devtrack CLI v2 — Development activity tracker with visual dashboard."""
 import sys
-import json
 import sqlite3
 import os
 import shutil
@@ -289,7 +288,7 @@ def api(path):
         return httpx.get(f"{BASE}{path}", timeout=3).json()
     except Exception:
         print(f"{R}✗ devtrack daemon no responde. Inicialo:{RESET}")
-        print(f"  launchctl load ~/Library/LaunchAgents/com.devtrack.plist")
+        print("  launchctl load ~/Library/LaunchAgents/com.devtrack.plist")
         sys.exit(1)
 
 
@@ -398,7 +397,7 @@ def cmd_today():
         print()
 
     if languages:
-        max_loc = max((l["lines"] for l in languages), default=1)
+        max_loc = max((lang["lines"] for lang in languages), default=1)
         print(f"  {BOLD}{G}lenguajes{RESET}")
         for lang in languages:
             name = (lang["language"] or "?")[:12].ljust(12)

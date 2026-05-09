@@ -3,12 +3,11 @@ import json
 import aiosqlite
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
-from collections import Counter
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 from devtrack import db
 from devtrack.ollama import generate_summary

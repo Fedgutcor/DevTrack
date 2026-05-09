@@ -21,7 +21,7 @@ async def generate_summary(stats: dict) -> str | None:
     languages = stats.get("languages", [])
 
     project_list = ", ".join(p["project"] for p in projects if p.get("project")) or "ninguno"
-    lang_list = ", ".join(l["language"] for l in languages if l.get("language")) or "ninguno"
+    lang_list = ", ".join(lang["language"] for lang in languages if lang.get("language")) or "ninguno"
 
     prompt = (
         f"Eres un asistente de productividad para desarrolladores. "

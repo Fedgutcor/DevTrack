@@ -1,8 +1,5 @@
-import asyncio
 import pytest
 import aiosqlite
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import devtrack.db as db_module
