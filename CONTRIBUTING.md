@@ -1,6 +1,18 @@
 # Contributing to DevTrack
 
+> 🇨🇴 Spanish speakers: see [docs/es/contribuir.md](docs/es/contribuir.md)
+
 Thanks for your interest in contributing. DevTrack is a local-first tool — we keep it simple and dependency-light.
+
+## Language policy
+
+| Element | Language |
+|---------|----------|
+| Code (functions, variables, classes) | English |
+| Commits and PR titles | English |
+| Issues | English preferred, Spanish accepted |
+| Documentation contributions | English or Spanish, both welcome |
+| Tests | English |
 
 ## Local setup
 
