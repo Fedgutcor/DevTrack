@@ -7,7 +7,7 @@ Thanks for your interest in contributing. DevTrack is a local-first tool — we 
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
-git clone https://github.com/ultragresion/devtrack
+git clone https://github.com/Fedgutcor/DevTrack
 cd devtrack
 uv sync --extra dev
 ```
@@ -41,7 +41,7 @@ uv run ruff check .
 
 ## Reporting bugs
 
-Open an issue at https://github.com/ultragresion/devtrack/issues with:
+Open an issue at https://github.com/Fedgutcor/DevTrack/issues with:
 - Your OS and Python version
 - Steps to reproduce
 - Expected vs actual behavior

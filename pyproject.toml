@@ -3,7 +3,7 @@ name = "devtrack"
 version = "0.1.0"
 description = "Local-first dev activity tracker — lines written, files edited, AI usage summaries"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [
     { name = "Ultragresion", email = "fedgutcor@gmail.com" }
@@ -12,7 +12,7 @@ keywords = ["developer-tools", "activity-tracker", "productivity", "local-first"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -43,9 +43,9 @@ devtrack = "devtrack.cli:main"
 devtrack-server = "devtrack.main:run"
 
 [project.urls]
-Homepage = "https://github.com/ultragresion/devtrack"
-Repository = "https://github.com/ultragresion/devtrack"
-"Bug Tracker" = "https://github.com/ultragresion/devtrack/issues"
+Homepage = "https://github.com/Fedgutcor/DevTrack"
+Repository = "https://github.com/Fedgutcor/DevTrack"
+"Bug Tracker" = "https://github.com/Fedgutcor/DevTrack/issues"
 
 [build-system]
 requires = ["hatchling"]

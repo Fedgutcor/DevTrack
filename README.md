@@ -2,8 +2,8 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/devtrack.svg)](https://pypi.org/project/devtrack/)
 [![Python versions](https://img.shields.io/pypi/pyversions/devtrack.svg)](https://pypi.org/project/devtrack/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/ultragresion/devtrack/actions/workflows/ci.yml/badge.svg)](https://github.com/ultragresion/devtrack/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/Fedgutcor/DevTrack/actions/workflows/ci.yml/badge.svg)](https://github.com/Fedgutcor/DevTrack/actions/workflows/ci.yml)
 
 Local-first development activity tracker. Tracks lines written, files edited, sessions, and Bash commands — with a web dashboard and optional AI summaries via Ollama.
 
