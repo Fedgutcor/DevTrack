@@ -47,6 +47,9 @@ Homepage = "https://github.com/Fedgutcor/DevTrack"
 Repository = "https://github.com/Fedgutcor/DevTrack"
 "Bug Tracker" = "https://github.com/Fedgutcor/DevTrack/issues"
 
+[tool.hatch.build.targets.wheel]
+packages = ["devtrack"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
