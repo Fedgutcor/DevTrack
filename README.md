@@ -1,5 +1,9 @@
 🇺🇸 English | 🇨🇴 [Español](README.es.md)
 
+<p align="center">
+  <img src="assets/devtrack.png" alt="DevTrack" width="200" />
+</p>
+
 # DevTrack
 
 [![PyPI version](https://img.shields.io/pypi/v/devtrack-local.svg)](https://pypi.org/project/devtrack-local/)
