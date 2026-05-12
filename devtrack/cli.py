@@ -403,19 +403,11 @@ def cmd_range(date_from: str, date_to: str | None = None):
     print()
 
 
-def cmd_export(target_date: str | None = None, fmt: str = "md"):
-    """Exporta el informe de un día a markdown o JSON (stdout)."""
-    data = _fetch_report(target_date)
-    label = data.get("date", target_date or date.today().isoformat())
-
-    if fmt == "json":
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        return
-
-    # Markdown
+def _day_report_md(data: dict) -> list[str]:
+    """Convierte un dict de informe diario a líneas markdown."""
+    label = data.get("date", "?")
     lines = [
-        f"# DevTrack — {label}",
+        f"## {label}",
         "",
         f"| Métrica | Valor |",
         f"|---------|-------|",
@@ -426,29 +418,97 @@ def cmd_export(target_date: str | None = None, fmt: str = "md"):
         f"| Sesiones | {data.get('sessions', 0)} |",
         "",
     ]
-
     projects = data.get("projects", [])
     if projects:
-        lines += ["## Proyectos", "", "| Proyecto | LOC |", "|----------|-----|"]
+        lines += ["### Proyectos", "", "| Proyecto | LOC |", "|----------|-----|"]
         for p in projects:
             lines.append(f"| {p['project']} | +{p['lines']} |")
         lines.append("")
-
     langs = data.get("languages", [])
     if langs:
-        lines += ["## Lenguajes", "", "| Lenguaje | LOC |", "|----------|-----|"]
-        for l in langs:
-            lines.append(f"| {l['language']} | +{l['lines']} |")
+        lines += ["### Lenguajes", "", "| Lenguaje | LOC |", "|----------|-----|"]
+        for lang in langs:
+            lines.append(f"| {lang['language']} | +{lang['lines']} |")
         lines.append("")
-
     top = data.get("top_files", [])
     if top:
-        lines += ["## Archivos más editados", "", "| Archivo | Edits |", "|---------|-------|"]
+        lines += ["### Archivos más editados", "", "| Archivo | Edits |", "|---------|-------|"]
         for f in top:
             lines.append(f"| {Path(f['file']).name} | {f['edits']} |")
         lines.append("")
+    return lines
 
-    print("\n".join(lines))
+
+def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "day"):
+    """Exporta informes a markdown o JSON (stdout, pipeable).
+
+    scope: 'day' | 'week' | 'all'
+    """
+    import json as _json
+
+    if scope == "all":
+        # Todos los días con actividad registrada
+        dates_data = api("/dates").get("dates", [])
+        if not dates_data:
+            print("# DevTrack — sin datos registrados")
+            return
+        all_days = [_fetch_report(d["date"]) for d in dates_data]
+        if fmt == "json":
+            print(_json.dumps(all_days, indent=2, ensure_ascii=False))
+            return
+        total_added   = sum(d.get("lines_added", 0) for d in all_days)
+        total_deleted = sum(d.get("lines_deleted", 0) for d in all_days)
+        first = dates_data[-1]["date"] if dates_data else "?"
+        last  = dates_data[0]["date"] if dates_data else "?"
+        out = [
+            "# DevTrack — Historial completo",
+            "",
+            f"Período: {first} → {last}  |  {len(all_days)} días activos",
+            "",
+            f"| Total LOC escritas | Total LOC eliminadas |",
+            f"|--------------------|----------------------|",
+            f"| +{total_added} | -{total_deleted} |",
+            "", "---", "",
+        ]
+        for d in all_days:
+            out += _day_report_md(d)
+        print("\n".join(out))
+        return
+
+    if scope == "week":
+        week_data = api("/week").get("history", [])[:7]
+        if not week_data:
+            print("# DevTrack — sin datos esta semana")
+            return
+        if fmt == "json":
+            print(_json.dumps(week_data, indent=2, ensure_ascii=False))
+            return
+        total_added   = sum(r.get("added", 0) for r in week_data)
+        total_deleted = sum(r.get("deleted", 0) for r in week_data)
+        out = [
+            "# DevTrack — Última semana",
+            "",
+            f"| Total LOC escritas | Total LOC eliminadas | Días activos |",
+            f"|--------------------|----------------------|--------------|",
+            f"| +{total_added} | -{total_deleted} | {len(week_data)} |",
+            "", "---", "",
+            "| Fecha | +LOC | -LOC | Archivos |",
+            "|-------|------|------|----------|",
+        ]
+        for r in sorted(week_data, key=lambda x: x.get("local_date") or x.get("date", "")):
+            d = r.get("local_date") or r.get("date", "?")
+            out.append(f"| {d} | +{r.get('added',0)} | -{r.get('deleted',0)} | {r.get('files',0)} |")
+        print("\n".join(out))
+        return
+
+    # scope == "day" (default)
+    data = _fetch_report(target_date)
+    if fmt == "json":
+        print(_json.dumps(data, indent=2, ensure_ascii=False))
+        return
+    label = data.get("date", target_date or date.today().isoformat())
+    out = [f"# DevTrack — {label}", ""] + _day_report_md(data)
+    print("\n".join(out))
 
 
 def main():
@@ -481,13 +541,17 @@ def main():
     elif cmd in ("export", "x"):
         target = None
         fmt    = "md"
-        args   = sys.argv[2:]
-        for a in args:
+        scope  = "day"
+        for a in sys.argv[2:]:
             if a in ("--json", "-j"):
                 fmt = "json"
+            elif a in ("--week", "-w"):
+                scope = "week"
+            elif a in ("--all", "-a"):
+                scope = "all"
             elif not a.startswith("-"):
                 target = a
-        cmd_export(target, fmt)
+        cmd_export(target, fmt, scope)
     elif cmd == "help":
         print(f"\n  {BOLD}devtrack{RESET} — development activity tracker\n")
         print(f"  {C}devtrack{RESET}                        resumen del día")
@@ -495,7 +559,9 @@ def main():
         print(f"  {C}devtrack files{RESET}                  archivos editados hoy")
         print(f"  {C}devtrack report <YYYY-MM-DD>{RESET}    informe de un día específico")
         print(f"  {C}devtrack range <desde> [hasta]{RESET}  resumen de un rango de fechas")
-        print(f"  {C}devtrack export [fecha] [--json]{RESET} exporta a markdown o JSON")
+        print(f"  {C}devtrack export [fecha] [--json]{RESET}  exporta día a markdown o JSON")
+        print(f"  {C}devtrack export --week [--json]{RESET}   exporta última semana")
+        print(f"  {C}devtrack export --all  [--json]{RESET}   exporta historial completo")
         print(f"  {C}devtrack status{RESET}                 estado del daemon")
         print(f"  {C}devtrack start{RESET}                  inicia el daemon")
         print(f"  {C}devtrack stop{RESET}                   detiene el daemon")
@@ -504,7 +570,9 @@ def main():
         print(f"  {DM}devtrack report 2026-05-10{RESET}")
         print(f"  {DM}devtrack range 2026-05-01 2026-05-11{RESET}")
         print(f"  {DM}devtrack export 2026-05-10 > informe.md{RESET}")
-        print(f"  {DM}devtrack export --json | jq .projects{RESET}\n")
+        print(f"  {DM}devtrack export --week > semana.md{RESET}")
+        print(f"  {DM}devtrack export --all > historial.md{RESET}")
+        print(f"  {DM}devtrack export --all --json | jq '.[] | .date'{RESET}\n")
     else:
         print(f"  {R}Comando desconocido: {cmd}{RESET}  —  usa {C}devtrack help{RESET}")
         sys.exit(1)
