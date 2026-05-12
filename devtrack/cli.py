@@ -45,244 +45,6 @@ def print_logo():
     print()
 
 
-# ── Agent ASCII gallery ────────────────────────────────────────────────────────
-
-AGENTS = {
-    "mirror_sphinx": {
-        "name": "Mirror Sphinx",
-        "role": "self_oracle · LOGOS",
-        "phrase": "En el reflejo encuentro tu esencia",
-        "p": 117, "s": 255,
-        "art": [
-            "       . * · * .       ",
-            "    .-' ◈     ◈ '-.    ",
-            "   /    \\ ~~~ /    \\   ",
-            "  | ~~~  '._.'  ~~~ |  ",
-            "  |    .--------.   |  ",
-            "  |   /  _   _  \\  |  ",
-            "   \\ |  (_) (_)  | /  ",
-            "    \\|   .___,   |/   ",
-            "    /|   '---'   |\\   ",
-            "   / '--._____,--' \\  ",
-            "  /   /|       |\\   \\ ",
-            " '---' '-------' '---' ",
-        ],
-    },
-    "granite_weaver": {
-        "name": "Granite Weaver",
-        "role": "room_architect · LOGOS",
-        "phrase": "Piedra a piedra, tejo la eternidad",
-        "p": 244, "s": 178,
-        "art": [
-            "   .--[#]--[#]--[#]--.  ",
-            "  /[#]  [#]  [#]  [#]\\ ",
-            " |[#]  .----------. [#]|",
-            " |[#] /  .-----,  \\ [#]|",
-            " |   |  | [=]  |  |   |",
-            " |   |  | [=]  |  |   |",
-            " |   |  |      |  |   |",
-            " |[#] \\ '--___-' / [#]|",
-            " |[#]  '--------'  [#]|",
-            "  \\[#]  [#]  [#]  [#]/",
-            "   '--[#]--[#]--[#]--'  ",
-            "    |||  FORGED  |||    ",
-        ],
-    },
-    "iron_arbiter": {
-        "name": "Iron Arbiter",
-        "role": "sovereign_terminator · LOGOS",
-        "phrase": "La justicia no conoce la misericordia",
-        "p": 160, "s": 240,
-        "art": [
-            "    .--[SYSTEM]--.     ",
-            "   /  |---------| \\   ",
-            "  |  || [X] [X] ||  | ",
-            "  |  ||   ___   ||  | ",
-            "  |  ||  |   |  ||  | ",
-            "   \\ ||  | = |  || /  ",
-            "    '||  |___|  ||'   ",
-            "    ||'---------'||   ",
-            "    || TERMINATE ||   ",
-            "    ||===========||   ",
-            "    /|           |\\   ",
-            "   [=]___________[=]  ",
-        ],
-    },
-    "cassandra_fox": {
-        "name": "Cassandra Fox",
-        "role": "premortem_architect · LOGOS",
-        "phrase": "Ya conozco tu destino, viajero",
-        "p": 164, "s": 220,
-        "art": [
-            "    /\\         /\\      ",
-            "   /  \\ .___. /  \\    ",
-            "  / /\\ |     | /\\ \\  ",
-            " | / | | ◉ ◉ | | \\ | ",
-            " | \\ |  \\___/  | / | ",
-            "  \\ \\ \\       / / /  ",
-            "   \\ \\ '.___./ / /   ",
-            "    \\  \\     /  /    ",
-            "     '--\\---/--'     ",
-            "        /   \\        ",
-            "       /     \\       ",
-            "      '~~~~~~~'      ",
-        ],
-    },
-    "archive_raven": {
-        "name": "Archive Raven",
-        "role": "failure_librarian · LOGOS",
-        "phrase": "Guardo secretos en plumas de tinta",
-        "p": 17, "s": 254,
-        "art": [
-            "         .---.         ",
-            "       .'     '.       ",
-            "      / (o) (o) \\     ",
-            "     |    ___    |     ",
-            "     |   '---'   |     ",
-            "    /|\\  _____  /|\\   ",
-            "   / | \\/     \\/ | \\ ",
-            "  /  |  |     |  |  \\ ",
-            " /   '--'     '--'   \\ ",
-            "/  ___________________\\",
-            "| |  [FAIL.LOG v∞]  | |",
-            "'--'------------------' ",
-        ],
-    },
-    "neural_octopus": {
-        "name": "Neural Octopus",
-        "role": "graph_mind · LOGOS",
-        "phrase": "Todo está conectado en la red",
-        "p": 46, "s": 51,
-        "art": [
-            "    ~~~ ◉—◉—◉ ~~~     ",
-            "   ~  \\  | |  /  ~   ",
-            "  ~  .-\\-+-+-/-.  ~  ",
-            " ~ / (  \\   /  ) \\ ~ ",
-            " ~|  | ◈  ◉  ◈ |  |~",
-            " ~|  |   \\_/   |  |~",
-            " ~ \\ (   ~~~   ) / ~ ",
-            "  ~  '---_____---'  ~ ",
-            "   ~ /  /  |  \\  \\ ~ ",
-            "   ~/  ~|  |  |~  \\~ ",
-            "  ~/~~~(|  |  |)~~~\\~",
-            " ~'~~~~~'~~'~~'~~~~~'~",
-        ],
-    },
-    "quantum_condor": {
-        "name": "Quantum Condor",
-        "role": "graph_orchestrator · LOGOS",
-        "phrase": "El pensamiento es el vuelo más veloz",
-        "p": 226, "s": 255,
-        "art": [
-            "  _____________________ ",
-            " /                     \\",
-            "/   .---.   .   .---.  \\",
-            "|  /  ◉  \\ / \\ /  ◉  \\ |",
-            "|  \\     / ~~~ \\     /  |",
-            " \\  '---'  ( )  '---'  /",
-            "  \\        /|\\ .      / ",
-            "   '------/ | \\------'  ",
-            "  /~~~~~~/  |  \\~~~~~~\\ ",
-            " /______/ __|__ \\______\\",
-            "|       /       \\       |",
-            "'------'~~~~~~~~~'------'",
-        ],
-    },
-    "guacamaya": {
-        "name": "Guacamaya",
-        "role": "design_agent · LOGOS",
-        "phrase": "El color es el lenguaje del alma",
-        "p": 201, "s": 46,
-        "art": [
-            "      /\\   /\\          ",
-            "     /  \\_/  \\         ",
-            "    / ◈     ◈ \\        ",
-            "   /   .___,   \\       ",
-            "  |   / ___ \\   |      ",
-            "  |  | |   | |  |      ",
-            "  |   \\_____/   |      ",
-            "   \\  [=====]  /       ",
-            "    \\ [#####] /        ",
-            "     \\[~~~~~]/         ",
-            "     /|     |\\         ",
-            "    '~'~~~~~'~'         ",
-        ],
-    },
-    "emerald_hare": {
-        "name": "Emerald Hare",
-        "role": "goal_agent · phantom · TÚ",
-        "phrase": "Yo orquesto. Ellos ejecutan.",
-        "p": 82, "s": 46,
-        "art": [
-            "    |'|           |'|   ",
-            "    | |           | |   ",
-            "    | |   .---.   | |   ",
-            "    | |  /     \\  | |   ",
-            "    | \\ | ◈   ◈ | / |   ",
-            "    '--' \\  ^  / '--'   ",
-            "          | ‿ |         ",
-            "         /     \\        ",
-            "        /  ~~~  \\       ",
-            "       | [  ♦  ] |      ",
-            "        \\ '~~~' /       ",
-            "    .----'-----'----.   ",
-            "   /    ULTRAGRESION \\  ",
-            "  /___________________\\ ",
-        ],
-    },
-}
-
-
-def cmd_agents(agent_key=None):
-    """Galería de retratos ASCII de los mejores agentes del Command Center."""
-    if agent_key and agent_key not in AGENTS:
-        print(f"\n  {R}Agente desconocido: {agent_key}{RESET}")
-        print(f"  Agentes disponibles: {', '.join(AGENTS.keys())}\n")
-        sys.exit(1)
-
-    targets = {agent_key: AGENTS[agent_key]} if agent_key else AGENTS
-
-    print_logo()
-    print(f"\n  {BOLD}{M}▸ Command Center — Galería de Agentes{RESET}\n")
-
-    for key, agent in targets.items():
-        p = ansi(agent["p"])
-        s = ansi(agent["s"])
-        art = agent["art"]
-        name = agent["name"]
-        role = agent["role"]
-        phrase = agent["phrase"]
-
-        # Box
-        box_w = 54
-        print(f"  {DM}╔{'═' * (box_w - 2)}╗{RESET}")
-        header = f"{BOLD}{p}{name}{RESET}  {DM}{role}{RESET}"
-        header_plain = f"{name}  {role}"
-        pad = box_w - 4 - len(header_plain)
-        print(f"  {DM}║{RESET}  {header}{' ' * pad}{DM}║{RESET}")
-        print(f"  {DM}╠{'═' * (box_w - 2)}╣{RESET}")
-
-        # Art side by side with info
-        info_lines = [
-            "",
-            f"  {s}❝{RESET}",
-            f"  {DIM}{phrase}{RESET}",
-            "",
-            f"  {DM}identity:{RESET} {p}{key}{RESET}",
-        ]
-        while len(info_lines) < len(art):
-            info_lines.append("")
-
-        art_w = 24
-        for i, line in enumerate(art):
-            art_col = f"{p}{line:<{art_w}}{RESET}"
-            info_col = info_lines[i] if i < len(info_lines) else ""
-            print(f"  {DM}║{RESET}  {art_col}  {info_col}")
-
-        print(f"  {DM}╚{'═' * (box_w - 2)}╝{RESET}")
-        print()
-
-
 def api(path):
     try:
         return httpx.get(f"{BASE}{path}", timeout=3).json()
@@ -557,6 +319,138 @@ def cmd_open():
     print(f"\n  {G}✓{RESET} Abriendo {C}{DASHBOARD_URL}{RESET}\n")
 
 
+def _fetch_report(target_date: str | None) -> dict:
+    path = f"/report?date={target_date}" if target_date else "/report"
+    return api(path)
+
+
+def cmd_report(target_date: str | None = None):
+    """Muestra el informe de un día específico en formato CLI."""
+    data = _fetch_report(target_date)
+    added    = data.get("lines_added", 0)
+    deleted  = data.get("lines_deleted", 0)
+    files    = data.get("files_touched", 0)
+    sessions = data.get("sessions", 0)
+    commands = data.get("commands_run", 0)
+    projects = data.get("projects", [])
+    languages = data.get("languages", [])
+    top_files = data.get("top_files", [])
+    label    = data.get("date", target_date or "hoy")
+
+    print_logo()
+    print(f"  {BOLD}{M}informe · {label}{RESET}\n")
+
+    max_v = max(added, deleted, files, 1)
+    print(f"  {G}+{RESET}{BOLD}{added:<6}{RESET} líneas escritas   {hbar(added, max_v)}")
+    print(f"  {R}-{RESET}{BOLD}{deleted:<6}{RESET} líneas borradas   {hbar(deleted, max_v, color=R)}")
+    print(f"  {C}~{RESET}{BOLD}{files:<6}{RESET} archivos tocados  {hbar(files, max_v, color=C)}")
+    print(f"  {DIM}>{RESET}{DIM}{commands:<6}{RESET} comandos  {sessions} sesiones\n")
+
+    if projects:
+        max_loc = max((p["lines"] for p in projects), default=1)
+        print(f"  {BOLD}{M}proyectos{RESET}")
+        for p in projects:
+            name = (p["project"] or "?")[:18].ljust(18)
+            print(f"  {DM}│{RESET} {C}{name}{RESET} {hbar(p['lines'], max_loc, width=16)} {DIM}{p['lines']}loc{RESET}")
+        print()
+
+    if languages:
+        max_loc = max((l["lines"] for l in languages), default=1)
+        print(f"  {BOLD}{G}lenguajes{RESET}")
+        for lang in languages:
+            name = (lang["language"] or "?")[:12].ljust(12)
+            print(f"  {DM}│{RESET} {G}{name}{RESET} {hbar(lang['lines'], max_loc, width=16, color=G2)} {DIM}{lang['lines']}loc{RESET}")
+        print()
+
+    if top_files:
+        print(f"  {BOLD}{Y}archivos{RESET}")
+        for i, f in enumerate(top_files[:5], 1):
+            fname = Path(f["file"]).name[:35].ljust(35) if f["file"] else "?"
+            print(f"  {DM}{i}.{RESET} {W}{fname}{RESET} {Y}{f['edits']}x{RESET}")
+        print()
+
+
+def cmd_range(date_from: str, date_to: str | None = None):
+    """Resumen agregado de un rango de fechas."""
+    data = api("/week")
+    history = data.get("history", [])
+
+    if not date_to:
+        date_to = date.today().isoformat()
+
+    rows = [r for r in history if date_from <= (r.get("local_date") or r.get("date", "")) <= date_to]
+    if not rows:
+        print(f"\n  {DIM}Sin datos entre {date_from} y {date_to}.{RESET}\n")
+        return
+
+    total_added   = sum(r.get("added", 0) for r in rows)
+    total_deleted = sum(r.get("deleted", 0) for r in rows)
+    total_files   = sum(r.get("files", 0) for r in rows)
+
+    print_logo()
+    print(f"  {BOLD}{M}rango · {date_from}  →  {date_to}{RESET}\n")
+    print(f"  {G}+{total_added}{RESET} líneas  {R}-{total_deleted}{RESET} borradas  {C}{total_files}{RESET} archivos  {DIM}{len(rows)} días activos{RESET}\n")
+
+    max_added = max((r.get("added", 0) for r in rows), default=1)
+    print(f"  {DIM}{'fecha':<12} +lines  -lines  archivos  actividad{RESET}")
+    for r in sorted(rows, key=lambda x: x.get("local_date") or x.get("date", "")):
+        d       = r.get("local_date") or r.get("date", "?")
+        added   = r.get("added", 0)
+        deleted = r.get("deleted", 0)
+        files   = r.get("files", 0)
+        bar     = hbar(added, max_added, width=14)
+        print(f"  {DM}{d}{RESET}  {G}+{added:<5}{RESET} {R}-{deleted:<5}{RESET} {C}{files:<8}{RESET} {bar}")
+    print()
+
+
+def cmd_export(target_date: str | None = None, fmt: str = "md"):
+    """Exporta el informe de un día a markdown o JSON (stdout)."""
+    data = _fetch_report(target_date)
+    label = data.get("date", target_date or date.today().isoformat())
+
+    if fmt == "json":
+        import json
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return
+
+    # Markdown
+    lines = [
+        f"# DevTrack — {label}",
+        "",
+        f"| Métrica | Valor |",
+        f"|---------|-------|",
+        f"| Líneas escritas | +{data.get('lines_added', 0)} |",
+        f"| Líneas eliminadas | -{data.get('lines_deleted', 0)} |",
+        f"| Archivos tocados | {data.get('files_touched', 0)} |",
+        f"| Comandos Bash | {data.get('commands_run', 0)} |",
+        f"| Sesiones | {data.get('sessions', 0)} |",
+        "",
+    ]
+
+    projects = data.get("projects", [])
+    if projects:
+        lines += ["## Proyectos", "", "| Proyecto | LOC |", "|----------|-----|"]
+        for p in projects:
+            lines.append(f"| {p['project']} | +{p['lines']} |")
+        lines.append("")
+
+    langs = data.get("languages", [])
+    if langs:
+        lines += ["## Lenguajes", "", "| Lenguaje | LOC |", "|----------|-----|"]
+        for l in langs:
+            lines.append(f"| {l['language']} | +{l['lines']} |")
+        lines.append("")
+
+    top = data.get("top_files", [])
+    if top:
+        lines += ["## Archivos más editados", "", "| Archivo | Edits |", "|---------|-------|"]
+        for f in top:
+            lines.append(f"| {Path(f['file']).name} | {f['edits']} |")
+        lines.append("")
+
+    print("\n".join(lines))
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "today"
 
@@ -574,27 +468,45 @@ def main():
         cmd_stop()
     elif cmd == "open":
         cmd_open()
-    elif cmd in ("agents", "a"):
-        agent_key = sys.argv[2] if len(sys.argv) > 2 else None
-        cmd_agents(agent_key)
+    elif cmd in ("report", "r"):
+        target = sys.argv[2] if len(sys.argv) > 2 else None
+        cmd_report(target)
+    elif cmd in ("range",):
+        if len(sys.argv) < 3:
+            print(f"  {R}Uso: devtrack range <desde> [hasta]{RESET}  (formato YYYY-MM-DD)")
+            sys.exit(1)
+        date_from = sys.argv[2]
+        date_to   = sys.argv[3] if len(sys.argv) > 3 else None
+        cmd_range(date_from, date_to)
+    elif cmd in ("export", "x"):
+        target = None
+        fmt    = "md"
+        args   = sys.argv[2:]
+        for a in args:
+            if a in ("--json", "-j"):
+                fmt = "json"
+            elif not a.startswith("-"):
+                target = a
+        cmd_export(target, fmt)
     elif cmd == "help":
-        print(f"\n  {BOLD}devtrack{RESET} — dev activity tracker\n")
-        print(f"  {C}devtrack start{RESET}             inicia el daemon + abre el dashboard")
-        print(f"  {C}devtrack stop{RESET}              detiene el daemon")
-        print(f"  {C}devtrack open{RESET}              abre el dashboard en el browser")
-        print(f"  {C}devtrack{RESET}                  resumen del día (CLI)")
-        print(f"  {C}devtrack week{RESET}              historial semanal")
-        print(f"  {C}devtrack files{RESET}             archivos editados hoy")
-        print(f"  {C}devtrack status{RESET}            estado del daemon + URL")
-        print(f"  {C}devtrack agents{RESET}            galería de agentes CC")
-        print(f"  {C}devtrack agents mirror_sphinx{RESET}  retrato individual\n")
-        print(f"  {DM}agentes disponibles:{RESET}")
-        for key, ag in AGENTS.items():
-            p = ansi(ag["p"])
-            print(f"    {p}·{RESET} {key:<20} {DIM}{ag['role']}{RESET}")
-        print()
+        print(f"\n  {BOLD}devtrack{RESET} — development activity tracker\n")
+        print(f"  {C}devtrack{RESET}                        resumen del día")
+        print(f"  {C}devtrack week{RESET}                   historial 30 días")
+        print(f"  {C}devtrack files{RESET}                  archivos editados hoy")
+        print(f"  {C}devtrack report <YYYY-MM-DD>{RESET}    informe de un día específico")
+        print(f"  {C}devtrack range <desde> [hasta]{RESET}  resumen de un rango de fechas")
+        print(f"  {C}devtrack export [fecha] [--json]{RESET} exporta a markdown o JSON")
+        print(f"  {C}devtrack status{RESET}                 estado del daemon")
+        print(f"  {C}devtrack start{RESET}                  inicia el daemon")
+        print(f"  {C}devtrack stop{RESET}                   detiene el daemon")
+        print(f"  {C}devtrack open{RESET}                   abre el dashboard en el browser\n")
+        print(f"  {DIM}Ejemplos:{RESET}")
+        print(f"  {DM}devtrack report 2026-05-10{RESET}")
+        print(f"  {DM}devtrack range 2026-05-01 2026-05-11{RESET}")
+        print(f"  {DM}devtrack export 2026-05-10 > informe.md{RESET}")
+        print(f"  {DM}devtrack export --json | jq .projects{RESET}\n")
     else:
-        print(f"  {R}Comando desconocido: {cmd}{RESET}")
+        print(f"  {R}Comando desconocido: {cmd}{RESET}  —  usa {C}devtrack help{RESET}")
         sys.exit(1)
 
 
