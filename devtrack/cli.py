@@ -41,7 +41,7 @@ def print_logo():
         print(f"  {C}{line}{RESET}")
     for line in track_art.split("\n"):
         print(f"  {G}{line}{RESET}")
-    print(f"  {DIM}development activity tracker  ·  v2{RESET}")
+    print(f"  {DIM}development activity tracker  ·  v2  ·  by: ULTRAGRESION.COM{RESET}")
     print()
 
 
