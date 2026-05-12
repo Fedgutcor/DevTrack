@@ -4,8 +4,7 @@ import aiosqlite
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-import time as _time
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
@@ -22,12 +21,6 @@ state = {"session_id": None, "session_start": None}
 
 def _local_now() -> datetime:
     """Retorna datetime actual en la zona horaria local del sistema."""
-    try:
-        tz_name = _time.tzname[0]
-        # tzname puede ser abreviatura no estándar — usar offset como fallback seguro
-    except Exception:
-        pass
-    offset_secs = -_time.timezone if not _time.daylight else -_time.altzone
     tz = ZoneInfo("UTC")
     return datetime.now(tz=tz).astimezone().replace(tzinfo=None)
 

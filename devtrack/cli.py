@@ -355,7 +355,7 @@ def cmd_report(target_date: str | None = None):
         print()
 
     if languages:
-        max_loc = max((l["lines"] for l in languages), default=1)
+        max_loc = max((lang_item["lines"] for lang_item in languages), default=1)
         print(f"  {BOLD}{G}lenguajes{RESET}")
         for lang in languages:
             name = (lang["language"] or "?")[:12].ljust(12)
@@ -409,8 +409,8 @@ def _day_report_md(data: dict) -> list[str]:
     lines = [
         f"## {label}",
         "",
-        f"| Métrica | Valor |",
-        f"|---------|-------|",
+        "| Métrica | Valor |",
+        "|---------|-------|",
         f"| Líneas escritas | +{data.get('lines_added', 0)} |",
         f"| Líneas eliminadas | -{data.get('lines_deleted', 0)} |",
         f"| Archivos tocados | {data.get('files_touched', 0)} |",
@@ -465,8 +465,8 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
             "",
             f"Período: {first} → {last}  |  {len(all_days)} días activos",
             "",
-            f"| Total LOC escritas | Total LOC eliminadas |",
-            f"|--------------------|----------------------|",
+            "| Total LOC escritas | Total LOC eliminadas |",
+            "|--------------------|----------------------|",
             f"| +{total_added} | -{total_deleted} |",
             "", "---", "",
         ]
@@ -488,8 +488,8 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
         out = [
             "# DevTrack — Última semana",
             "",
-            f"| Total LOC escritas | Total LOC eliminadas | Días activos |",
-            f"|--------------------|----------------------|--------------|",
+            "| Total LOC escritas | Total LOC eliminadas | Días activos |",
+            "|--------------------|----------------------|--------------|",
             f"| +{total_added} | -{total_deleted} | {len(week_data)} |",
             "", "---", "",
             "| Fecha | +LOC | -LOC | Archivos |",
