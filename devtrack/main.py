@@ -4,6 +4,8 @@ import aiosqlite
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import time as _time
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
@@ -16,6 +18,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger("devtrack")
 
 state = {"session_id": None, "session_start": None}
+
+
+def _local_now() -> datetime:
+    """Retorna datetime actual en la zona horaria local del sistema."""
+    try:
+        tz_name = _time.tzname[0]
+        # tzname puede ser abreviatura no estándar — usar offset como fallback seguro
+    except Exception:
+        pass
+    offset_secs = -_time.timezone if not _time.daylight else -_time.altzone
+    tz = ZoneInfo("UTC")
+    return datetime.now(tz=tz).astimezone().replace(tzinfo=None)
+
+
+def _local_date_str() -> str:
+    return _local_now().strftime("%Y-%m-%d")
+
+
+def _local_hour() -> int:
+    return _local_now().hour
 
 EXT_MAP = {
     '.py': 'Python', '.ts': 'TypeScript', '.tsx': 'TypeScript',
@@ -51,14 +73,14 @@ def detect_language(fp: str) -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
-    now = datetime.utcnow().isoformat()
+    now = _local_now().isoformat()
     sid = await db.create_session(now)
     state["session_id"] = sid
     state["session_start"] = now
     logger.info(f"Session started: id={sid}")
     yield
     if state["session_id"]:
-        await db.end_session(state["session_id"], datetime.utcnow().isoformat())
+        await db.end_session(state["session_id"], _local_now().isoformat())
 
 
 app = FastAPI(title="devtrack", version="0.2.0", lifespan=lifespan)
@@ -240,7 +262,7 @@ async def dashboard():
 
 @app.get("/api/summary")
 async def api_summary():
-    local_today = (datetime.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%d")
+    local_today = _local_date_str()
     async with aiosqlite.connect(db.DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=?", (local_today,))
@@ -286,9 +308,10 @@ async def post_event(request: Request):
     try:
         data = await request.json()
         event_type = data.get("event_type", "")
-        timestamp = data.get("timestamp") or datetime.utcnow().isoformat()
-        local_date = data.get("local_date") or (datetime.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%d")
-        local_hour = data.get("local_hour")
+        _now = _local_now()
+        timestamp = data.get("timestamp") or _now.isoformat()
+        local_date = data.get("local_date") or _now.strftime("%Y-%m-%d")
+        local_hour = data.get("local_hour") if data.get("local_hour") is not None else _now.hour
         file_path = data.get("file_path", "")
         details = data.get("details", {})
         project = data.get("project") or detect_project(file_path)
@@ -321,7 +344,7 @@ async def post_event(request: Request):
 @app.post("/sessions/end")
 async def end_session():
     if state["session_id"]:
-        now = datetime.utcnow().isoformat()
+        now = _local_now().isoformat()
         await db.end_session(state["session_id"], now)
         sid = await db.create_session(now)
         state["session_id"] = sid
@@ -329,50 +352,80 @@ async def end_session():
     return {"status": "ok", "new_session_id": state["session_id"]}
 
 
-@app.get("/today")
-async def today():
-    local_today = (datetime.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%d")
+async def _get_day_report(target_date: str) -> dict:
+    """Query completo de un día dado en formato YYYY-MM-DD."""
     async with aiosqlite.connect(db.DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
-        cur = await conn.execute("SELECT COUNT(DISTINCT session_id) as c FROM file_events WHERE local_date=?", (local_today,))
+        cur = await conn.execute("SELECT COUNT(DISTINCT session_id) as c FROM file_events WHERE local_date=?", (target_date,))
         sessions = (await cur.fetchone())["c"]
 
-        cur = await conn.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != ''", (local_today,))
+        cur = await conn.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != ''", (target_date,))
         files = (await cur.fetchone())["c"]
 
-        cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=?", (local_today,))
+        cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=?", (target_date,))
         row = await cur.fetchone()
         added, deleted = row["a"], row["d"]
 
-        cur = await conn.execute("SELECT COUNT(*) as c FROM file_events WHERE local_date=? AND event_type='bash'", (local_today,))
+        cur = await conn.execute("SELECT COUNT(*) as c FROM file_events WHERE local_date=? AND event_type='bash'", (target_date,))
         commands = (await cur.fetchone())["c"]
 
         cur = await conn.execute(
             "SELECT file_path, COUNT(*) as edits FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != '' GROUP BY file_path ORDER BY edits DESC LIMIT 5",
-            (local_today,),
+            (target_date,),
         )
         top_files = [{"file": r["file_path"], "edits": r["edits"]} async for r in cur]
 
         cur = await conn.execute(
             "SELECT project, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND project IS NOT NULL GROUP BY project ORDER BY loc DESC LIMIT 6",
-            (local_today,),
+            (target_date,),
         )
         projects = [{"project": r["project"], "lines": r["loc"]} async for r in cur]
 
         cur = await conn.execute(
             "SELECT language, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND language IS NOT NULL GROUP BY language ORDER BY loc DESC LIMIT 6",
-            (local_today,),
+            (target_date,),
         )
         languages = [{"language": r["language"], "lines": r["loc"]} async for r in cur]
 
-    return {"date": local_today, "sessions": sessions, "files_touched": files,
+    return {"date": target_date, "sessions": sessions, "files_touched": files,
             "lines_added": added, "lines_deleted": deleted, "commands_run": commands,
             "top_files": top_files, "projects": projects, "languages": languages}
 
 
+@app.get("/today")
+async def today():
+    return await _get_day_report(_local_date_str())
+
+
+@app.get("/report")
+async def report(date: str | None = None):
+    """Recupera el informe de cualquier día. ?date=YYYY-MM-DD (default: hoy)."""
+    if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usa YYYY-MM-DD.")
+        target = date
+    else:
+        target = _local_date_str()
+    return await _get_day_report(target)
+
+
+@app.get("/dates")
+async def available_dates():
+    """Lista todos los días con actividad registrada."""
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        cur = await conn.execute(
+            "SELECT DISTINCT local_date, SUM(lines_added) as loc, COUNT(DISTINCT file_path) as files "
+            "FROM loc_deltas WHERE local_date IS NOT NULL GROUP BY local_date ORDER BY local_date DESC"
+        )
+        rows = [{"date": r[0], "lines_added": r[1], "files": r[2]} async for r in cur]
+    return {"dates": rows}
+
+
 @app.get("/files")
 async def files_today():
-    local_today = (datetime.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%d")
+    local_today = _local_date_str()
     async with aiosqlite.connect(db.DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute(
@@ -387,7 +440,7 @@ async def files_today():
 
 @app.get("/hourly")
 async def hourly():
-    local_today = (datetime.utcnow() - timedelta(hours=5)).strftime("%Y-%m-%d")
+    local_today = _local_date_str()
     async with aiosqlite.connect(db.DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute(
@@ -409,7 +462,7 @@ async def streak():
     current = 0
     longest = 0
     run = 0
-    today_local = (datetime.utcnow() - timedelta(hours=5)).date()
+    today_local = _local_now().date()
 
     for i, d in enumerate(dates):
         expected = (today_local - timedelta(days=i)).isoformat()
