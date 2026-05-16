@@ -54,6 +54,15 @@ def api(path):
         sys.exit(1)
 
 
+def api_post(path, payload=None):
+    try:
+        return httpx.post(f"{BASE}{path}", json=payload or {}, timeout=10).json()
+    except Exception:
+        print(f"{R}✗ devtrack daemon no responde. Inicialo:{RESET}")
+        print("  launchctl load ~/Library/LaunchAgents/com.devtrack.plist")
+        sys.exit(1)
+
+
 def hbar(value, max_val, width=28, color=G):
     if max_val == 0:
         return DIM + "░" * width + RESET
@@ -597,6 +606,10 @@ def main():
             elif not a.startswith("-"):
                 target = a
         cmd_export(target, fmt, scope)
+    elif cmd in ("aggregate", "agg"):
+        result = api_post("/aggregate")
+        n = result.get("days_processed", 0)
+        print(f"  {G}✓{RESET} daily_aggregates actualizado — {BOLD}{n}{RESET} días procesados")
     elif cmd == "help":
         print(f"\n  {BOLD}devtrack{RESET} — development activity tracker\n")
         print(f"  {C}devtrack{RESET}                        resumen del día")

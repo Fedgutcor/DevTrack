@@ -29,6 +29,43 @@ def _local_date_str() -> str:
     return _local_now().strftime("%Y-%m-%d")
 
 
+async def _upsert_daily_aggregate(conn: aiosqlite.Connection, target_date: str) -> None:
+    cur = await conn.execute(
+        "SELECT COUNT(*) FROM sessions WHERE DATE(start_time) = ?", (target_date,)
+    )
+    total_sessions = (await cur.fetchone())[0]
+
+    cur = await conn.execute(
+        "SELECT COUNT(DISTINCT file_path) FROM file_events WHERE local_date = ?", (target_date,)
+    )
+    total_files = (await cur.fetchone())[0]
+
+    cur = await conn.execute(
+        "SELECT COALESCE(SUM(lines_added),0), COALESCE(SUM(lines_deleted),0) "
+        "FROM loc_deltas WHERE local_date = ?", (target_date,)
+    )
+    row = await cur.fetchone()
+    total_added, total_deleted = row[0], row[1]
+
+    cur = await conn.execute(
+        "SELECT COUNT(*) FROM ai_usage WHERE DATE(timestamp) = ?", (target_date,)
+    )
+    total_ai = (await cur.fetchone())[0]
+
+    await conn.execute(
+        """INSERT INTO daily_aggregates
+               (date, total_sessions, total_files_changed, total_lines_added, total_lines_deleted, total_ai_requests)
+           VALUES (?,?,?,?,?,?)
+           ON CONFLICT(date) DO UPDATE SET
+               total_sessions       = excluded.total_sessions,
+               total_files_changed  = excluded.total_files_changed,
+               total_lines_added    = excluded.total_lines_added,
+               total_lines_deleted  = excluded.total_lines_deleted,
+               total_ai_requests    = excluded.total_ai_requests""",
+        (target_date, total_sessions, total_files, total_added, total_deleted, total_ai),
+    )
+
+
 def _local_hour() -> int:
     return _local_now().hour
 
@@ -327,6 +364,8 @@ async def post_event(request: Request):
                     (session_id, timestamp, file_path, details.get("lines", 0), 0, local_date, local_hour, project, language),
                 )
             await conn.commit()
+            await _upsert_daily_aggregate(conn, local_date)
+            await conn.commit()
 
         return {"status": "ok"}
     except Exception as e:
@@ -414,6 +453,32 @@ async def available_dates():
         )
         rows = [{"date": r[0], "lines_added": r[1], "files": r[2]} async for r in cur]
     return {"dates": rows}
+
+
+@app.post("/aggregate")
+async def run_aggregate():
+    """Recalcula daily_aggregates para todos los días con actividad registrada."""
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        cur = await conn.execute(
+            "SELECT DISTINCT local_date FROM loc_deltas WHERE local_date IS NOT NULL ORDER BY local_date"
+        )
+        dates = [r[0] async for r in cur]
+        for d in dates:
+            await _upsert_daily_aggregate(conn, d)
+        await conn.commit()
+    return {"status": "ok", "days_processed": len(dates), "dates": dates}
+
+
+@app.get("/aggregate")
+async def get_aggregates():
+    """Devuelve el contenido actual de daily_aggregates."""
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(
+            "SELECT * FROM daily_aggregates ORDER BY date DESC"
+        )
+        rows = [dict(r) async for r in cur]
+    return {"aggregates": rows}
 
 
 @app.get("/files")
