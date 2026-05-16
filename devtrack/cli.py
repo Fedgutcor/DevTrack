@@ -191,7 +191,7 @@ def cmd_week():
     print(f"\n  {BOLD}{M}historial de actividad{RESET}\n")
     print(f"  {DIM}fecha       +lines  -lines  archivos  actividad{RESET}")
     for r in history[:14]:
-        d       = r.get("date", "?")
+        d       = r.get("local_date") or r.get("date", "?")
         added   = r.get("added", 0)
         deleted = r.get("deleted", 0)
         files   = r.get("files", 0)
@@ -440,14 +440,22 @@ def _day_report_md(data: dict) -> list[str]:
 
 
 def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "day"):
-    """Exporta informes a markdown o JSON (stdout, pipeable).
+    """Exporta informes a markdown, JSON o CSV (stdout, pipeable).
 
     scope: 'day' | 'week' | 'all'
     """
     import json as _json
+    import csv as _csv
+    import io as _io
+
+    def _to_csv(rows: list[dict], fields: list[str]) -> str:
+        buf = _io.StringIO()
+        w = _csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+        return buf.getvalue()
 
     if scope == "all":
-        # Todos los días con actividad registrada
         dates_data = api("/dates").get("dates", [])
         if not dates_data:
             print("# DevTrack — sin datos registrados")
@@ -455,6 +463,19 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
         all_days = [_fetch_report(d["date"]) for d in dates_data]
         if fmt == "json":
             print(_json.dumps(all_days, indent=2, ensure_ascii=False))
+            return
+        if fmt == "csv":
+            rows = [
+                {
+                    "date": d.get("date", ""),
+                    "lines_added": d.get("lines_added", 0),
+                    "lines_deleted": d.get("lines_deleted", 0),
+                    "files_changed": d.get("files_changed", 0),
+                    "sessions": d.get("sessions", 0),
+                }
+                for d in all_days
+            ]
+            print(_to_csv(rows, ["date", "lines_added", "lines_deleted", "files_changed", "sessions"]), end="")
             return
         total_added   = sum(d.get("lines_added", 0) for d in all_days)
         total_deleted = sum(d.get("lines_deleted", 0) for d in all_days)
@@ -483,6 +504,18 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
         if fmt == "json":
             print(_json.dumps(week_data, indent=2, ensure_ascii=False))
             return
+        if fmt == "csv":
+            rows = [
+                {
+                    "date": r.get("local_date") or r.get("date", ""),
+                    "lines_added": r.get("added", 0),
+                    "lines_deleted": r.get("deleted", 0),
+                    "files_changed": r.get("files", 0),
+                }
+                for r in sorted(week_data, key=lambda x: x.get("local_date") or x.get("date", ""))
+            ]
+            print(_to_csv(rows, ["date", "lines_added", "lines_deleted", "files_changed"]), end="")
+            return
         total_added   = sum(r.get("added", 0) for r in week_data)
         total_deleted = sum(r.get("deleted", 0) for r in week_data)
         out = [
@@ -505,6 +538,16 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
     data = _fetch_report(target_date)
     if fmt == "json":
         print(_json.dumps(data, indent=2, ensure_ascii=False))
+        return
+    if fmt == "csv":
+        rows = [{
+            "date": data.get("date", target_date or date.today().isoformat()),
+            "lines_added": data.get("lines_added", 0),
+            "lines_deleted": data.get("lines_deleted", 0),
+            "files_changed": data.get("files_changed", 0),
+            "sessions": data.get("sessions", 0),
+        }]
+        print(_to_csv(rows, ["date", "lines_added", "lines_deleted", "files_changed", "sessions"]), end="")
         return
     label = data.get("date", target_date or date.today().isoformat())
     out = [f"# DevTrack — {label}", ""] + _day_report_md(data)
@@ -545,6 +588,8 @@ def main():
         for a in sys.argv[2:]:
             if a in ("--json", "-j"):
                 fmt = "json"
+            elif a in ("--csv", "-c"):
+                fmt = "csv"
             elif a in ("--week", "-w"):
                 scope = "week"
             elif a in ("--all", "-a"):
@@ -559,9 +604,9 @@ def main():
         print(f"  {C}devtrack files{RESET}                  archivos editados hoy")
         print(f"  {C}devtrack report <YYYY-MM-DD>{RESET}    informe de un día específico")
         print(f"  {C}devtrack range <desde> [hasta]{RESET}  resumen de un rango de fechas")
-        print(f"  {C}devtrack export [fecha] [--json]{RESET}  exporta día a markdown o JSON")
-        print(f"  {C}devtrack export --week [--json]{RESET}   exporta última semana")
-        print(f"  {C}devtrack export --all  [--json]{RESET}   exporta historial completo")
+        print(f"  {C}devtrack export [fecha] [--json|--csv]{RESET}  exporta día a markdown, JSON o CSV")
+        print(f"  {C}devtrack export --week [--json|--csv]{RESET}   exporta última semana")
+        print(f"  {C}devtrack export --all  [--json|--csv]{RESET}   exporta historial completo")
         print(f"  {C}devtrack status{RESET}                 estado del daemon")
         print(f"  {C}devtrack start{RESET}                  inicia el daemon")
         print(f"  {C}devtrack stop{RESET}                   detiene el daemon")
