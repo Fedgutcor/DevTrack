@@ -48,8 +48,32 @@ devtrack status       # Estado del daemon + URL del dashboard
 devtrack              # Resumen del día en terminal
 devtrack week         # Historial de los últimos 14 días
 devtrack files        # Archivos editados hoy
+devtrack report FECHA # Informe detallado de un día específico (YYYY-MM-DD)
+devtrack range DESDE [HASTA]  # Resumen de un rango de fechas
 devtrack help         # Lista completa de comandos
 ```
+
+### Export
+
+```bash
+devtrack export                   # Día actual como Markdown (stdout, pipeable)
+devtrack export --json            # Día actual como JSON
+devtrack export --csv             # Día actual como CSV
+devtrack export --week            # Última semana como tabla Markdown
+devtrack export --week --csv      # Última semana como CSV
+devtrack export --all             # Historial completo como Markdown
+devtrack export --all --json      # Historial completo como array JSON
+devtrack export --all --csv > historial.csv  # Exportar a archivo
+```
+
+### Agregados diarios
+
+```bash
+devtrack aggregate    # Recalcula daily_aggregates para todas las fechas históricas
+```
+
+Los agregados también se actualizan automáticamente con cada evento entrante.
+El endpoint `/aggregate` de la API expone el estado actual de la tabla.
 
 ---
 

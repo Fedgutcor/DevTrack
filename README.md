@@ -47,8 +47,32 @@ devtrack status       # Show running status + dashboard URL
 devtrack              # Today's summary in terminal
 devtrack week         # Last 14 days history
 devtrack files        # Files edited today
+devtrack report DATE  # Detailed report for a specific day (YYYY-MM-DD)
+devtrack range FROM [TO]  # Summary for a date range
 devtrack help         # Full command list
 ```
+
+### Export
+
+```bash
+devtrack export                   # Today as Markdown (stdout, pipeable)
+devtrack export --json            # Today as JSON
+devtrack export --csv             # Today as CSV
+devtrack export --week            # Last 7 days as Markdown table
+devtrack export --week --csv      # Last 7 days as CSV
+devtrack export --all             # Full history as Markdown
+devtrack export --all --json      # Full history as JSON array
+devtrack export --all --csv > history.csv  # Pipe to file
+```
+
+### Daily aggregates
+
+```bash
+devtrack aggregate    # Recalculate daily_aggregates for all historical dates
+```
+
+Aggregates are also updated automatically on every incoming event.
+The `/aggregate` API endpoint exposes the current table state.
 
 ---
 
