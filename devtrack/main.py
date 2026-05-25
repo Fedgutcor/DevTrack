@@ -115,6 +115,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="devtrack", version="0.2.0", lifespan=lifespan)
 
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
+
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -287,6 +289,9 @@ setInterval(refresh, 30000);
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
+    tpl = _TEMPLATE_DIR / "dashboard.html"
+    if tpl.exists():
+        return HTMLResponse(content=tpl.read_text())
     return HTMLResponse(content=DASHBOARD_HTML)
 
 
@@ -384,6 +389,37 @@ async def end_session():
     return {"status": "ok", "new_session_id": state["session_id"]}
 
 
+@app.post("/ai-usage")
+async def post_ai_usage(request: Request):
+    """Registra una interacción de AI (Claude Code Stop hook)."""
+    try:
+        data = await request.json()
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            await conn.execute(
+                """INSERT INTO ai_usage
+                   (session_id, timestamp, local_date, local_hour, model,
+                    prompt_chars, completion_chars, tool_calls, duration_ms, source)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    state["session_id"],
+                    data.get("timestamp", _local_now().isoformat()),
+                    data.get("local_date"),
+                    data.get("local_hour"),
+                    data.get("model", "claude"),
+                    data.get("prompt_chars", 0),
+                    data.get("completion_chars", 0),
+                    data.get("tool_calls", 0),
+                    data.get("duration_ms", 0),
+                    data.get("source", "claude-code"),
+                ),
+            )
+            await conn.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"/ai-usage error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def _get_day_report(target_date: str) -> dict:
     """Query completo de un día dado en formato YYYY-MM-DD."""
     async with aiosqlite.connect(db.DB_PATH) as conn:
@@ -424,6 +460,113 @@ async def _get_day_report(target_date: str) -> dict:
             "top_files": top_files, "projects": projects, "languages": languages}
 
 
+@app.get("/export/work-sessions")
+async def export_work_sessions(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    gap_minutes: int = 30,
+):
+    """
+    Calcula bloques de trabajo reales agrupando eventos por inactividad.
+    Un gap > gap_minutes entre eventos consecutivos = nueva sesión de trabajo.
+    Columnas: date, session_num, start_time, end_time, duration_min,
+              lines_added, lines_deleted, files_changed, bash_commands,
+              top_project, top_language
+    """
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        where = "WHERE fe.local_date IS NOT NULL"
+        params: list = []
+        if date_from:
+            where += " AND fe.local_date >= ?"
+            params.append(date_from)
+        if date_to:
+            where += " AND fe.local_date <= ?"
+            params.append(date_to)
+
+        cur = await conn.execute(
+            f"""
+            SELECT fe.timestamp, fe.local_date, fe.event_type, fe.file_path,
+                   fe.project, fe.language,
+                   COALESCE(ld.lines_added, 0), COALESCE(ld.lines_deleted, 0)
+            FROM file_events fe
+            LEFT JOIN loc_deltas ld
+              ON ld.file_path = fe.file_path AND ld.timestamp = fe.timestamp
+            {where}
+            ORDER BY fe.timestamp
+            """,
+            params,
+        )
+        events = await cur.fetchall()
+
+    if not events:
+        return {"sessions": [], "total": 0}
+
+    gap_seconds = gap_minutes * 60
+    sessions = []
+    current: dict | None = None
+
+    for row in events:
+        ts_str, local_date, etype, fpath, project, lang, added, deleted = row
+        try:
+            ts = datetime.fromisoformat(ts_str)
+        except Exception:
+            continue
+
+        if current is None or (ts - current["_last_ts"]).total_seconds() > gap_seconds:
+            if current:
+                current["duration_min"] = round(
+                    (current["_last_ts"] - current["_start_ts"]).total_seconds() / 60, 1
+                )
+                sessions.append(_clean_session(current))
+            current = {
+                "_start_ts": ts, "_last_ts": ts,
+                "date": local_date, "session_num": len(sessions) + 1,
+                "start_time": ts_str, "end_time": ts_str,
+                "lines_added": 0, "lines_deleted": 0,
+                "files_changed": set(), "bash_commands": 0,
+                "_projects": {}, "_languages": {},
+            }
+
+        current["_last_ts"] = ts
+        current["end_time"] = ts_str
+        current["lines_added"]   += added
+        current["lines_deleted"] += deleted
+        if etype == "bash":
+            current["bash_commands"] += 1
+        elif etype in ("edit", "write") and fpath:
+            current["files_changed"].add(fpath)
+        if project:
+            current["_projects"][project] = current["_projects"].get(project, 0) + added
+        if lang:
+            current["_languages"][lang] = current["_languages"].get(lang, 0) + added
+
+    if current:
+        current["duration_min"] = round(
+            (current["_last_ts"] - current["_start_ts"]).total_seconds() / 60, 1
+        )
+        sessions.append(_clean_session(current))
+
+    return {"sessions": sessions, "total": len(sessions)}
+
+
+def _clean_session(s: dict) -> dict:
+    top_project  = max(s["_projects"],  key=s["_projects"].get)  if s["_projects"]  else ""
+    top_language = max(s["_languages"], key=s["_languages"].get) if s["_languages"] else ""
+    return {
+        "date":          s["date"],
+        "session_num":   s["session_num"],
+        "start_time":    s["start_time"],
+        "end_time":      s["end_time"],
+        "duration_min":  s["duration_min"],
+        "lines_added":   s["lines_added"],
+        "lines_deleted": s["lines_deleted"],
+        "files_changed": len(s["files_changed"]),
+        "bash_commands": s["bash_commands"],
+        "top_project":   top_project,
+        "top_language":  top_language,
+    }
+
+
 @app.get("/today")
 async def today():
     return await _get_day_report(_local_date_str())
@@ -453,6 +596,165 @@ async def available_dates():
         )
         rows = [{"date": r[0], "lines_added": r[1], "files": r[2]} async for r in cur]
     return {"dates": rows}
+
+
+@app.get("/export/hourly")
+async def export_hourly(date_from: str | None = None, date_to: str | None = None):
+    """
+    Exporta datos horarios completos para análisis.
+    Cada fila = una hora activa: date, hour, lines_added, lines_deleted,
+    files_changed, bash_commands, edits, writes, project (top), language (top).
+    """
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        where = "WHERE ld.local_date IS NOT NULL"
+        params: list = []
+        if date_from:
+            where += " AND ld.local_date >= ?"
+            params.append(date_from)
+        if date_to:
+            where += " AND ld.local_date <= ?"
+            params.append(date_to)
+
+        cur = await conn.execute(
+            f"""
+            SELECT ld.local_date, ld.local_hour,
+                   COALESCE(SUM(ld.lines_added), 0)   AS lines_added,
+                   COALESCE(SUM(ld.lines_deleted), 0) AS lines_deleted,
+                   COUNT(DISTINCT ld.file_path)        AS files_changed
+            FROM loc_deltas ld
+            {where}
+            GROUP BY ld.local_date, ld.local_hour
+            ORDER BY ld.local_date, ld.local_hour
+            """,
+            params,
+        )
+        loc_rows = {(r[0], r[1]): {"lines_added": r[2], "lines_deleted": r[3], "files_changed": r[4]}
+                    async for r in cur}
+
+        fe_where = where.replace("ld.", "fe.")
+        cur = await conn.execute(
+            f"""
+            SELECT fe.local_date, fe.local_hour,
+                   SUM(CASE WHEN fe.event_type = 'bash'  THEN 1 ELSE 0 END) AS bash_cmds,
+                   SUM(CASE WHEN fe.event_type = 'edit'  THEN 1 ELSE 0 END) AS edits,
+                   SUM(CASE WHEN fe.event_type = 'write' THEN 1 ELSE 0 END) AS writes
+            FROM file_events fe
+            {fe_where}
+            GROUP BY fe.local_date, fe.local_hour
+            ORDER BY fe.local_date, fe.local_hour
+            """,
+            params,
+        )
+        event_rows = {(r[0], r[1]): {"bash_cmds": r[2], "edits": r[3], "writes": r[4]}
+                      async for r in cur}
+
+        # top project per hour
+        cur = await conn.execute(
+            f"""
+            SELECT ld.local_date, ld.local_hour, ld.project, SUM(ld.lines_added) AS loc
+            FROM loc_deltas ld
+            {where} AND ld.project IS NOT NULL
+            GROUP BY ld.local_date, ld.local_hour, ld.project
+            ORDER BY ld.local_date, ld.local_hour, loc DESC
+            """,
+            params,
+        )
+        top_project: dict = {}
+        async for r in cur:
+            key = (r[0], r[1])
+            if key not in top_project:
+                top_project[key] = r[2]
+
+        # top language per hour
+        cur = await conn.execute(
+            f"""
+            SELECT ld.local_date, ld.local_hour, ld.language, SUM(ld.lines_added) AS loc
+            FROM loc_deltas ld
+            {where} AND ld.language IS NOT NULL
+            GROUP BY ld.local_date, ld.local_hour, ld.language
+            ORDER BY ld.local_date, ld.local_hour, loc DESC
+            """,
+            params,
+        )
+        top_language: dict = {}
+        async for r in cur:
+            key = (r[0], r[1])
+            if key not in top_language:
+                top_language[key] = r[2]
+
+        # top 3 files per hour (by edits)
+        fe_where2 = where.replace("ld.", "fe2.")
+        cur = await conn.execute(
+            f"""
+            SELECT fe2.local_date, fe2.local_hour, fe2.file_path, COUNT(*) AS edits
+            FROM file_events fe2
+            {fe_where2} AND fe2.event_type IN ('edit','write') AND fe2.file_path != ''
+            GROUP BY fe2.local_date, fe2.local_hour, fe2.file_path
+            ORDER BY fe2.local_date, fe2.local_hour, edits DESC
+            """,
+            params,
+        )
+        top_files_by_hour: dict = {}
+        async for r in cur:
+            key = (r[0], r[1])
+            if key not in top_files_by_hour:
+                top_files_by_hour[key] = []
+            if len(top_files_by_hour[key]) < 3:
+                from pathlib import Path as _P
+                top_files_by_hour[key].append(_P(r[2]).name)
+
+        # ai_usage per hour
+        ai_where = where.replace("ld.", "au.")
+        try:
+            cur = await conn.execute(
+                f"""
+                SELECT au.local_date, au.local_hour,
+                       COUNT(*) AS interactions,
+                       SUM(au.prompt_chars) AS prompt_chars,
+                       SUM(au.completion_chars) AS completion_chars,
+                       SUM(au.tool_calls) AS tool_calls,
+                       SUM(au.duration_ms) AS duration_ms
+                FROM ai_usage au
+                {ai_where}
+                GROUP BY au.local_date, au.local_hour
+                """,
+                params,
+            )
+            ai_rows = {(r[0], r[1]): {
+                "ai_interactions": r[2], "ai_prompt_chars": r[3],
+                "ai_completion_chars": r[4], "ai_tool_calls": r[5],
+                "ai_duration_ms": r[6],
+            } async for r in cur}
+        except Exception as e:
+            logger.warning("ai_usage query failed (tabla ausente o error): %s", e)
+            ai_rows = {}
+
+    all_keys = sorted(set(loc_rows) | set(event_rows))
+    rows = []
+    for key in all_keys:
+        d, h = key
+        loc  = loc_rows.get(key, {})
+        evts = event_rows.get(key, {})
+        ai   = ai_rows.get(key, {})
+        rows.append({
+            "date":                d,
+            "hour":                h,
+            "lines_added":         loc.get("lines_added", 0),
+            "lines_deleted":       loc.get("lines_deleted", 0),
+            "files_changed":       loc.get("files_changed", 0),
+            "bash_commands":       evts.get("bash_cmds", 0),
+            "edits":               evts.get("edits", 0),
+            "writes":              evts.get("writes", 0),
+            "top_project":         top_project.get(key, ""),
+            "top_language":        top_language.get(key, ""),
+            "top_files":           "|".join(top_files_by_hour.get(key, [])),
+            "ai_interactions":     ai.get("ai_interactions", 0),
+            "ai_prompt_chars":     ai.get("ai_prompt_chars", 0),
+            "ai_completion_chars": ai.get("ai_completion_chars", 0),
+            "ai_tool_calls":       ai.get("ai_tool_calls", 0),
+            "ai_duration_ms":      ai.get("ai_duration_ms", 0),
+        })
+    return {"rows": rows, "total": len(rows)}
 
 
 @app.post("/aggregate")
@@ -553,6 +855,42 @@ async def week():
         )
         rows = [dict(r) async for r in cur]
     return {"history": rows}
+
+
+@app.get("/history")
+async def history(limit: int = 0):
+    """Retorna todo el historial de actividad. limit=0 significa sin límite."""
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        query = (
+            "SELECT local_date, SUM(lines_added) as added, SUM(lines_deleted) as deleted, "
+            "COUNT(DISTINCT file_path) as files "
+            "FROM loc_deltas WHERE local_date IS NOT NULL "
+            "GROUP BY local_date ORDER BY local_date DESC"
+        )
+        if limit > 0:
+            query += f" LIMIT {limit}"
+        cur = await conn.execute(query)
+        rows = [dict(r) async for r in cur]
+
+    total_days    = len(rows)
+    total_added   = sum(r["added"] or 0 for r in rows)
+    total_deleted = sum(r["deleted"] or 0 for r in rows)
+    total_files   = sum(r["files"] or 0 for r in rows)
+    date_first    = rows[-1]["local_date"] if rows else None
+    date_last     = rows[0]["local_date"] if rows else None
+
+    return {
+        "history": rows,
+        "summary": {
+            "total_days": total_days,
+            "total_added": total_added,
+            "total_deleted": total_deleted,
+            "total_files": total_files,
+            "date_first": date_first,
+            "date_last": date_last,
+        },
+    }
 
 
 def run():

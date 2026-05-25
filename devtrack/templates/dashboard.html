@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevTrack Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f12; color: #e1e4e8; font-family: 'SF Mono', 'Fira Code', monospace; padding: 24px; }
+  h1 { color: #5b9cf6; font-size: 1.4rem; margin-bottom: 4px; letter-spacing: 2px; text-transform: uppercase; }
+  .subtitle { color: #555; font-size: 0.75rem; margin-bottom: 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .card { background: #161620; border: 1px solid #1e2030; border-radius: 8px; padding: 18px; }
+  .card .label { color: #555; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .card .value { color: #5b9cf6; font-size: 2rem; font-weight: bold; }
+  .card .unit { color: #888; font-size: 0.75rem; margin-top: 2px; }
+  .section { background: #161620; border: 1px solid #1e2030; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  .section h2 { color: #5b9cf6; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+  canvas { max-height: 220px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { color: #555; text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e2030; font-weight: normal; }
+  td { padding: 8px 8px; border-bottom: 1px solid #111; color: #c9d1d9; }
+  td:first-child { color: #5b9cf6; font-size: 0.78rem; }
+  tr:last-child td { border-bottom: none; }
+  .summary-box { background: #0d1117; border-left: 3px solid #5b9cf6; padding: 14px 16px; border-radius: 0 6px 6px 0;
+                 font-size: 0.85rem; line-height: 1.6; color: #c9d1d9; min-height: 48px; }
+  .summary-box.loading { color: #444; font-style: italic; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #5b9cf6; margin-right: 6px; }
+  .green { color: #3fb950; }
+  .red { color: #f85149; }
+  footer { color: #333; font-size: 0.7rem; text-align: center; margin-top: 28px; }
+</style>
+</head>
+<body>
+<h1><span class="dot"></span>DevTrack</h1>
+<div class="subtitle" id="subtitle">cargando...</div>
+
+<div class="grid" id="metrics"></div>
+
+<div class="section">
+  <h2>Actividad — últimos 7 días</h2>
+  <canvas id="weekChart"></canvas>
+</div>
+
+<div class="section">
+  <h2>Archivos más editados hoy</h2>
+  <table id="filesTable">
+    <thead><tr><th>Archivo</th><th>Proyecto</th><th>Lenguaje</th><th>Edits</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Resumen del día · IA</h2>
+  <div class="summary-box loading" id="aiSummary">Consultando Ollama...</div>
+</div>
+
+<footer>devtrack · auto-refresh 30s</footer>
+
+<script>
+let weekChart = null;
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+function fmtFile(path) {
+  if (!path) return '?';
+  const parts = path.split('/');
+  return parts[parts.length - 1];
+}
+
+async function loadDashboard() {
+  const [today, week, files] = await Promise.all([
+    fetchJSON('/today'),
+    fetchJSON('/week'),
+    fetchJSON('/files'),
+  ]);
+
+  document.getElementById('subtitle').textContent =
+    new Date().toLocaleString('es-MX', {weekday:'long', year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+
+  // Metrics cards
+  const m = document.getElementById('metrics');
+  m.innerHTML = `
+    <div class="card"><div class="label">Líneas escritas</div><div class="value green">+${today.lines_added ?? 0}</div><div class="unit">loc hoy</div></div>
+    <div class="card"><div class="label">Líneas eliminadas</div><div class="value red">-${today.lines_deleted ?? 0}</div><div class="unit">loc hoy</div></div>
+    <div class="card"><div class="label">Archivos editados</div><div class="value">${today.files_touched ?? 0}</div><div class="unit">archivos</div></div>
+    <div class="card"><div class="label">Sesiones</div><div class="value">${today.sessions ?? 0}</div><div class="unit">hoy</div></div>
+    <div class="card"><div class="label">Comandos Bash</div><div class="value">${today.commands_run ?? 0}</div><div class="unit">ejecutados</div></div>
+  `;
+
+  // Week chart
+  const history = (week.history || []).slice(0, 7).reverse();
+  const labels = history.map(r => r.local_date || r.date);
+  const added = history.map(r => r.added || 0);
+  const deleted = history.map(r => r.deleted || 0);
+
+  if (weekChart) weekChart.destroy();
+  const ctx = document.getElementById('weekChart').getContext('2d');
+  weekChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Líneas escritas', data: added, backgroundColor: '#1f6feb', borderRadius: 4 },
+        { label: 'Líneas eliminadas', data: deleted, backgroundColor: '#8b1515', borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#888', font: { family: 'monospace' } } } },
+      scales: {
+        x: { ticks: { color: '#555' }, grid: { color: '#1a1a2e' } },
+        y: { ticks: { color: '#555' }, grid: { color: '#1a1a2e' } },
+      }
+    }
+  });
+
+  // Files table
+  const tbody = document.querySelector('#filesTable tbody');
+  const filesList = (files.files || []).slice(0, 8);
+  if (filesList.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#444;text-align:center">Sin archivos editados hoy</td></tr>';
+  } else {
+    tbody.innerHTML = filesList.map(f => `
+      <tr>
+        <td>${fmtFile(f.file_path)}</td>
+        <td>${f.project || '–'}</td>
+        <td>${f.language || '–'}</td>
+        <td>${f.edits}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+async function loadSummary() {
+  const el = document.getElementById('aiSummary');
+  try {
+    const r = await fetch('/api/summary');
+    const data = await r.json();
+    if (data.summary) {
+      el.className = 'summary-box';
+      el.textContent = data.summary;
+    } else {
+      el.className = 'summary-box';
+      el.style.color = '#555';
+      el.textContent = data.message || 'Instala Ollama para resúmenes con IA: https://ollama.com';
+    }
+  } catch {
+    el.className = 'summary-box';
+    el.style.color = '#555';
+    el.textContent = 'Error consultando el resumen.';
+  }
+}
+
+async function refresh() {
+  await loadDashboard();
+  await loadSummary();
+}
+
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

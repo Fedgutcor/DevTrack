@@ -13,7 +13,7 @@ BASE = "http://127.0.0.1:17321"
 DASHBOARD_URL = "http://127.0.0.1:17321"
 PLIST_LABEL = "com.ultragresion.devtrack"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
-DB_PATH = os.path.expanduser("~/.local/share/devtrack/devtrack.sqlite3")
+DB_PATH = str(Path.home() / ".local" / "share" / "devtrack" / "devtrack.sqlite3")
 
 # ANSI 256 colors
 C  = "\x1b[38;5;51m"    # cyan neón
@@ -240,8 +240,8 @@ def _server_binary() -> str | None:
     binary = shutil.which("devtrack-server")
     if binary:
         return binary
-    # Fallback: python -m devtrack.main via the same Python
-    return None
+    # Fallback: python -m devtrack.main via the same Python interpreter
+    return sys.executable
 
 
 def _write_plist(server_path: str) -> None:
@@ -381,6 +381,19 @@ def cmd_report(target_date: str | None = None):
 
 def cmd_range(date_from: str, date_to: str | None = None):
     """Resumen agregado de un rango de fechas."""
+    if not date_to:
+        date_to = date.today().isoformat()
+
+    try:
+        d_from = date.fromisoformat(date_from)
+        d_to   = date.fromisoformat(date_to)
+        span   = (d_to - d_from).days
+        if span > 30:
+            print(f"\n  {Y}⚠ El rango cubre {span} días — /week solo retorna los últimos 30.{RESET}")
+            print(f"  {DIM}Mostrando datos disponibles; puede haber días sin datos fuera de ese límite.{RESET}\n")
+    except ValueError:
+        pass
+
     data = api("/week")
     history = data.get("history", [])
 
@@ -412,40 +425,178 @@ def cmd_range(date_from: str, date_to: str | None = None):
     print()
 
 
-def _day_report_md(data: dict) -> list[str]:
-    """Convierte un dict de informe diario a líneas markdown."""
-    label = data.get("date", "?")
-    lines = [
-        f"## {label}",
-        "",
-        "| Métrica | Valor |",
-        "|---------|-------|",
-        f"| Líneas escritas | +{data.get('lines_added', 0)} |",
-        f"| Líneas eliminadas | -{data.get('lines_deleted', 0)} |",
-        f"| Archivos tocados | {data.get('files_touched', 0)} |",
-        f"| Comandos Bash | {data.get('commands_run', 0)} |",
-        f"| Sesiones | {data.get('sessions', 0)} |",
-        "",
+_BOX_W = 60  # ancho total del bloque ASCII
+
+
+def _asciibar(value: int, max_val: int, width: int = 16) -> str:
+    if max_val == 0:
+        return "░" * width
+    filled = round((value / max_val) * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _pct(value: int, total: int) -> str:
+    if total == 0:
+        return " 0%"
+    return f"{round(value / total * 100):2d}%"
+
+
+def _box_row(left: str, right: str, width: int = _BOX_W) -> str:
+    inner = width - 4  # "│ " + content + " │"
+    gap   = inner - len(left) - len(right)
+    return f"│ {left}{' ' * max(gap, 1)}{right} │"
+
+
+def _section(title: str, rows: list[str]) -> list[str]:
+    w = _BOX_W
+    out = [
+        f"├{'─' * (w - 2)}┤",
+        f"│ {title.upper():<{w - 4}} │",
+        f"├{'─' * (w - 2)}┤",
     ]
+    out += rows
+    return out
+
+
+def _day_report_md(data: dict) -> list[str]:
+    """Informe de un día en ASCII box art — ancho fijo, sin tablas markdown."""
+    label    = data.get("date", "?")
+    added    = data.get("lines_added", 0)
+    deleted  = data.get("lines_deleted", 0)
+    files    = data.get("files_touched", 0)
+    commands = data.get("commands_run", 0)
+    sessions = data.get("sessions", 0)
+    w = _BOX_W
+
+    out = [
+        "",
+        f"┌{'─' * (w - 2)}┐",
+        f"│ DevTrack · {label:<{w - 16}} │",
+        f"├{'─' * (w - 2)}┤",
+        _box_row(f"+{added:,} escritas", f"−{deleted:,} eliminadas"),
+        _box_row(f"{files} archivos", f"{sessions} sesiones · {commands} cmds"),
+    ]
+
     projects = data.get("projects", [])
     if projects:
-        lines += ["### Proyectos", "", "| Proyecto | LOC |", "|----------|-----|"]
+        max_loc = max((p["lines"] for p in projects), default=1)
+        total   = sum(p["lines"] for p in projects)
+        out += _section("proyectos", [])
         for p in projects:
-            lines.append(f"| {p['project']} | +{p['lines']} |")
-        lines.append("")
+            name  = (p["project"] or "?")[:18].ljust(18)
+            loc   = f"{p['lines']:>5,}"
+            bar   = _asciibar(p["lines"], max_loc, width=12)
+            pct   = _pct(p["lines"], total)
+            out.append(f"│  {name}  {loc}  {bar}  {pct}  │")
+
     langs = data.get("languages", [])
     if langs:
-        lines += ["### Lenguajes", "", "| Lenguaje | LOC |", "|----------|-----|"]
+        max_loc = max((l["lines"] for l in langs), default=1)
+        total   = sum(l["lines"] for l in langs)
+        out += _section("lenguajes", [])
         for lang in langs:
-            lines.append(f"| {lang['language']} | +{lang['lines']} |")
-        lines.append("")
+            name = (lang["language"] or "?")[:14].ljust(14)
+            loc  = f"{lang['lines']:>5,}"
+            bar  = _asciibar(lang["lines"], max_loc, width=12)
+            pct  = _pct(lang["lines"], total)
+            out.append(f"│  {name}  {loc}  {bar}  {pct}  │")
+
     top = data.get("top_files", [])
     if top:
-        lines += ["### Archivos más editados", "", "| Archivo | Edits |", "|---------|-------|"]
-        for f in top:
-            lines.append(f"| {Path(f['file']).name} | {f['edits']} |")
-        lines.append("")
-    return lines
+        max_edits = max((f["edits"] for f in top), default=1)
+        out += _section("archivos más editados", [])
+        for i, f in enumerate(top, 1):
+            fname = (Path(f["file"]).name if f["file"] else "?")[:28].ljust(28)
+            edits = f"{f['edits']:>3}"
+            bar   = _asciibar(f["edits"], max_edits, width=10)
+            out.append(f"│  {i}. {fname}  {edits}  {bar}  │")
+
+    out.append(f"└{'─' * (w - 2)}┘")
+    out.append("")
+    return out
+
+
+def cmd_all(limit: int = 0):
+    """Muestra el historial completo de actividad desde el primer registro."""
+    data = api(f"/history{'?limit=' + str(limit) if limit else ''}")
+    history = data.get("history", [])
+    summary = data.get("summary", {})
+
+    if not history:
+        print(f"\n  {DIM}Sin datos registrados.{RESET}\n")
+        return
+
+    print_logo()
+    first  = summary.get("date_first", "?")
+    last   = summary.get("date_last", "?")
+    days   = summary.get("total_days", len(history))
+    added  = summary.get("total_added", sum(r.get("added", 0) for r in history))
+    deleted = summary.get("total_deleted", sum(r.get("deleted", 0) for r in history))
+
+    print(f"  {BOLD}{M}historial completo · {first}  →  {last}{RESET}\n")
+    print(f"  {G}+{added:,}{RESET} líneas  {R}-{deleted:,}{RESET} borradas  {BOLD}{days}{RESET} días activos\n")
+
+    max_added = max((r.get("added", 0) for r in history), default=1)
+    rows = sorted(history, key=lambda x: x.get("local_date", ""))
+    print(f"  {DIM}{'fecha':<12}  {'+lines':>7}  {'-lines':>7}  {'archivos':>8}  actividad{RESET}")
+    for r in rows:
+        d       = r.get("local_date", "?")
+        a       = r.get("added", 0)
+        dl      = r.get("deleted", 0)
+        files   = r.get("files", 0)
+        bar     = hbar(a, max_added, width=18)
+        print(f"  {DM}{d}{RESET}  {G}{a:>7,}{RESET}  {R}{dl:>7,}{RESET}  {C}{files:>8}{RESET}  {bar}")
+    print()
+
+
+def _build_params(date_from: str | None, date_to: str | None, extra: str = "") -> str:
+    parts = []
+    if date_from:
+        parts.append(f"date_from={date_from}")
+    if date_to:
+        parts.append(f"date_to={date_to}")
+    if extra:
+        parts.append(extra)
+    return ("?" + "&".join(parts)) if parts else ""
+
+
+def cmd_export_hourly(date_from: str | None = None, date_to: str | None = None):
+    """Exporta datos horarios completos en CSV para análisis de datos."""
+    import csv as _csv
+    import io as _io
+
+    data = api(f"/export/hourly{_build_params(date_from, date_to)}")
+    rows = data.get("rows", [])
+    fields = [
+        "date", "hour", "lines_added", "lines_deleted", "files_changed",
+        "bash_commands", "edits", "writes", "top_project", "top_language", "top_files",
+        "ai_interactions", "ai_prompt_chars", "ai_completion_chars",
+        "ai_tool_calls", "ai_duration_ms",
+    ]
+    buf = _io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    print(buf.getvalue(), end="")
+
+
+def cmd_export_sessions(date_from: str | None = None, date_to: str | None = None, gap: int = 30):
+    """Exporta bloques de trabajo reales (inactividad > gap minutos = nueva sesión)."""
+    import csv as _csv
+    import io as _io
+
+    data = api(f"/export/work-sessions{_build_params(date_from, date_to, f'gap_minutes={gap}')}")
+    rows = data.get("sessions", [])
+    fields = [
+        "date", "session_num", "start_time", "end_time", "duration_min",
+        "lines_added", "lines_deleted", "files_changed", "bash_commands",
+        "top_project", "top_language",
+    ]
+    buf = _io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    print(buf.getvalue(), end="")
 
 
 def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "day"):
@@ -479,7 +630,7 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
                     "date": d.get("date", ""),
                     "lines_added": d.get("lines_added", 0),
                     "lines_deleted": d.get("lines_deleted", 0),
-                    "files_changed": d.get("files_changed", 0),
+                    "files_changed": d.get("files_touched", 0),
                     "sessions": d.get("sessions", 0),
                 }
                 for d in all_days
@@ -488,16 +639,15 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
             return
         total_added   = sum(d.get("lines_added", 0) for d in all_days)
         total_deleted = sum(d.get("lines_deleted", 0) for d in all_days)
+        total_files   = sum(d.get("files_touched", 0) for d in all_days)
         first = dates_data[-1]["date"] if dates_data else "?"
         last  = dates_data[0]["date"] if dates_data else "?"
         out = [
             "# DevTrack — Historial completo",
             "",
-            f"Período: {first} → {last}  |  {len(all_days)} días activos",
+            f"> Período: **{first}** → **{last}** · **{len(all_days)}** días activos",
             "",
-            "| Total LOC escritas | Total LOC eliminadas |",
-            "|--------------------|----------------------|",
-            f"| +{total_added} | -{total_deleted} |",
+            f"> **+{total_added:,}** líneas escritas · **−{total_deleted:,}** eliminadas · **{total_files:,}** archivos tocados",
             "", "---", "",
         ]
         for d in all_days:
@@ -525,21 +675,32 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
             ]
             print(_to_csv(rows, ["date", "lines_added", "lines_deleted", "files_changed"]), end="")
             return
-        total_added   = sum(r.get("added", 0) for r in week_data)
-        total_deleted = sum(r.get("deleted", 0) for r in week_data)
+        sorted_week = sorted(week_data, key=lambda x: x.get("local_date") or x.get("date", ""))
+        total_added   = sum(r.get("added", 0) for r in sorted_week)
+        total_deleted = sum(r.get("deleted", 0) for r in sorted_week)
+        total_files   = sum(r.get("files", 0) for r in sorted_week)
+        max_added     = max((r.get("added", 0) for r in sorted_week), default=1)
+        w = _BOX_W
         out = [
             "# DevTrack — Última semana",
             "",
-            "| Total LOC escritas | Total LOC eliminadas | Días activos |",
-            "|--------------------|----------------------|--------------|",
-            f"| +{total_added} | -{total_deleted} | {len(week_data)} |",
-            "", "---", "",
-            "| Fecha | +LOC | -LOC | Archivos |",
-            "|-------|------|------|----------|",
+            f"┌{'─' * (w - 2)}┐",
+            f"│ {'DevTrack · última semana':<{w - 4}} │",
+            f"├{'─' * (w - 2)}┤",
+            _box_row(f"+{total_added:,} escritas", f"−{total_deleted:,} eliminadas"),
+            _box_row(f"{total_files} archivos totales", f"{len(sorted_week)} días activos"),
+            f"├{'─' * (w - 2)}┤",
+            f"│  {'FECHA':<12}  {'  +LOC':>7}  {'  -LOC':>7}  {'FILES':>5}  {'ACTIVIDAD':<16} │",
+            f"│  {'─'*12}  {'─'*7}  {'─'*7}  {'─'*5}  {'─'*16} │",
         ]
-        for r in sorted(week_data, key=lambda x: x.get("local_date") or x.get("date", "")):
-            d = r.get("local_date") or r.get("date", "?")
-            out.append(f"| {d} | +{r.get('added',0)} | -{r.get('deleted',0)} | {r.get('files',0)} |")
+        for r in sorted_week:
+            d       = r.get("local_date") or r.get("date", "?")
+            added   = r.get("added", 0)
+            deleted = r.get("deleted", 0)
+            files   = r.get("files", 0)
+            bar     = _asciibar(added, max_added, width=16)
+            out.append(f"│  {d:<12}  {added:>7,}  {deleted:>7,}  {files:>5}  {bar} │")
+        out.append(f"└{'─' * (w - 2)}┘")
         print("\n".join(out))
         return
 
@@ -553,7 +714,7 @@ def cmd_export(target_date: str | None = None, fmt: str = "md", scope: str = "da
             "date": data.get("date", target_date or date.today().isoformat()),
             "lines_added": data.get("lines_added", 0),
             "lines_deleted": data.get("lines_deleted", 0),
-            "files_changed": data.get("files_changed", 0),
+            "files_changed": data.get("files_touched", 0),
             "sessions": data.get("sessions", 0),
         }]
         print(_to_csv(rows, ["date", "lines_added", "lines_deleted", "files_changed", "sessions"]), end="")
@@ -591,9 +752,13 @@ def main():
         date_to   = sys.argv[3] if len(sys.argv) > 3 else None
         cmd_range(date_from, date_to)
     elif cmd in ("export", "x"):
-        target = None
-        fmt    = "md"
-        scope  = "day"
+        target   = None
+        fmt      = "md"
+        scope    = "day"
+        hourly   = False
+        sessions = False
+        date_to  = None
+        gap_min  = None
         for a in sys.argv[2:]:
             if a in ("--json", "-j"):
                 fmt = "json"
@@ -603,9 +768,32 @@ def main():
                 scope = "week"
             elif a in ("--all", "-a"):
                 scope = "all"
+            elif a in ("--hourly", "-h"):
+                hourly = True
+            elif a in ("--sessions",):
+                sessions = True
+            elif a.startswith("--gap="):
+                gap_min = a.split("=", 1)[1]
             elif not a.startswith("-"):
-                target = a
-        cmd_export(target, fmt, scope)
+                if target is None:
+                    target = a
+                else:
+                    date_to = a
+        if hourly:
+            cmd_export_hourly(target, date_to)
+        elif sessions:
+            gap = int(gap_min) if gap_min else 30
+            cmd_export_sessions(target, date_to, gap)
+        else:
+            cmd_export(target, fmt, scope)
+    elif cmd in ("all", "a"):
+        limit = 0
+        for arg in sys.argv[2:]:
+            if arg.startswith("--limit="):
+                limit = int(arg.split("=", 1)[1])
+            elif arg.isdigit():
+                limit = int(arg)
+        cmd_all(limit)
     elif cmd in ("aggregate", "agg"):
         result = api_post("/aggregate")
         n = result.get("days_processed", 0)
@@ -620,6 +808,11 @@ def main():
         print(f"  {C}devtrack export [fecha] [--json|--csv]{RESET}  exporta día a markdown, JSON o CSV")
         print(f"  {C}devtrack export --week [--json|--csv]{RESET}   exporta última semana")
         print(f"  {C}devtrack export --all  [--json|--csv]{RESET}   exporta historial completo")
+        print(f"  {C}devtrack export --hourly [desde] [hasta]{RESET} exporta datos por hora (CSV)")
+        print(f"  {DM}  devtrack export --hourly > hourly.csv{RESET}")
+        print(f"  {DM}  devtrack export --hourly 2026-05-12 2026-05-18 > rango.csv{RESET}")
+        print(f"  {C}devtrack all{RESET}                    historial completo (todos los registros)")
+        print(f"  {C}devtrack all --limit=N{RESET}          últimos N días del historial")
         print(f"  {C}devtrack status{RESET}                 estado del daemon")
         print(f"  {C}devtrack start{RESET}                  inicia el daemon")
         print(f"  {C}devtrack stop{RESET}                   detiene el daemon")
