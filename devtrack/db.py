@@ -50,9 +50,12 @@ SCHEMA = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER,
         timestamp TEXT NOT NULL,
+        local_date TEXT,
+        local_hour INTEGER,
         model TEXT NOT NULL,
         prompt_chars INTEGER DEFAULT 0,
         completion_chars INTEGER DEFAULT 0,
+        tool_calls INTEGER DEFAULT 0,
         duration_ms INTEGER DEFAULT 0,
         source TEXT DEFAULT 'claude'
     )
