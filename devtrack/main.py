@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 
 from devtrack import db
+from devtrack.fswatcher import FsWatcher, default_roots
 from devtrack.ollama import generate_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -108,7 +109,13 @@ async def lifespan(app: FastAPI):
     state["session_id"] = sid
     state["session_start"] = now
     logger.info(f"Session started: id={sid}")
+
+    watcher = FsWatcher(default_roots(), _record_event)
+    watcher.start()
+
     yield
+
+    watcher.stop()
     if state["session_id"]:
         await db.end_session(state["session_id"], _local_now().isoformat())
 
@@ -338,40 +345,49 @@ async def health():
     return {"status": "ok", "session_id": state["session_id"], "session_start": state["session_start"]}
 
 
+async def _record_event(data: dict) -> None:
+    """Persiste un evento normalizado (mismo shape que el body de POST /events).
+
+    Compartido entre el endpoint HTTP (hooks de Claude Code) y el FsWatcher
+    (cualquier otro editor/IDE: Antigravity, Vim, JetBrains, terminal, etc.)
+    para que ambas fuentes alimenten las mismas tablas sin duplicar lógica.
+    """
+    event_type = data.get("event_type", "")
+    _now = _local_now()
+    timestamp = data.get("timestamp") or _now.isoformat()
+    local_date = data.get("local_date") or _now.strftime("%Y-%m-%d")
+    local_hour = data.get("local_hour") if data.get("local_hour") is not None else _now.hour
+    file_path = data.get("file_path", "")
+    details = data.get("details", {})
+    project = data.get("project") or detect_project(file_path)
+    language = data.get("language") or detect_language(file_path)
+    session_id = state["session_id"] or 1
+
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO file_events (session_id, timestamp, event_type, file_path, details, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
+            (session_id, timestamp, event_type, file_path, json.dumps(details), local_date, local_hour, project, language),
+        )
+        if event_type == "edit":
+            await conn.execute(
+                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
+                (session_id, timestamp, file_path, details.get("lines_added", 0), details.get("lines_deleted", 0), local_date, local_hour, project, language),
+            )
+        elif event_type == "write":
+            await conn.execute(
+                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
+                (session_id, timestamp, file_path, details.get("lines", 0), 0, local_date, local_hour, project, language),
+            )
+        await conn.commit()
+        await _upsert_daily_aggregate(conn, local_date)
+        await conn.commit()
+
+
 @app.post("/events")
 async def post_event(request: Request):
     try:
         data = await request.json()
-        event_type = data.get("event_type", "")
-        _now = _local_now()
-        timestamp = data.get("timestamp") or _now.isoformat()
-        local_date = data.get("local_date") or _now.strftime("%Y-%m-%d")
-        local_hour = data.get("local_hour") if data.get("local_hour") is not None else _now.hour
-        file_path = data.get("file_path", "")
-        details = data.get("details", {})
-        project = data.get("project") or detect_project(file_path)
-        language = data.get("language") or detect_language(file_path)
-        session_id = state["session_id"] or 1
-
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            await conn.execute(
-                "INSERT INTO file_events (session_id, timestamp, event_type, file_path, details, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-                (session_id, timestamp, event_type, file_path, json.dumps(details), local_date, local_hour, project, language),
-            )
-            if event_type == "edit":
-                await conn.execute(
-                    "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (session_id, timestamp, file_path, details.get("lines_added", 0), details.get("lines_deleted", 0), local_date, local_hour, project, language),
-                )
-            elif event_type == "write":
-                await conn.execute(
-                    "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (session_id, timestamp, file_path, details.get("lines", 0), 0, local_date, local_hour, project, language),
-                )
-            await conn.commit()
-            await _upsert_daily_aggregate(conn, local_date)
-            await conn.commit()
-
+        await _record_event(data)
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"/events error: {e}")
