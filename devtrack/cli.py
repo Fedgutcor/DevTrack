@@ -491,8 +491,8 @@ def _day_report_md(data: dict) -> list[str]:
 
     langs = data.get("languages", [])
     if langs:
-        max_loc = max((l["lines"] for l in langs), default=1)
-        total   = sum(l["lines"] for l in langs)
+        max_loc = max((lang["lines"] for lang in langs), default=1)
+        total   = sum(lang["lines"] for lang in langs)
         out += _section("lenguajes", [])
         for lang in langs:
             name = (lang["language"] or "?")[:14].ljust(14)
