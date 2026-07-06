@@ -1,0 +1,26 @@
+# Unit systemd para correr DevTrack como daemon 24/7 en un nodo Linux de la
+# flota (ej. tentomon). Instalación:
+#
+#   sudo cp scripts/devtrack.service.example /etc/systemd/system/devtrack.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now devtrack.service
+#
+# Ajustar User/WorkingDirectory/paths si el nodo usa otro usuario u otra ruta.
+
+[Unit]
+Description=DevTrack - fleet telemetry daemon (LOC/actividad por máquina)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ultragresion
+WorkingDirectory=/home/ultragresion/projects/devtrack
+ExecStart=/bin/bash /home/ultragresion/projects/devtrack/scripts/devtrack-start.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/ultragresion/projects/devtrack/logs/devtrack.log
+StandardError=append:/home/ultragresion/projects/devtrack/logs/devtrack.log
+
+[Install]
+WantedBy=multi-user.target
