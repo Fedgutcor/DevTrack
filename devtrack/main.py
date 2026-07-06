@@ -1,5 +1,6 @@
 import logging
 import json
+import socket
 import aiosqlite
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
@@ -363,20 +364,22 @@ async def _record_event(data: dict) -> None:
     language = data.get("language") or detect_language(file_path)
     session_id = state["session_id"] or 1
 
+    host = socket.gethostname()
+
     async with aiosqlite.connect(db.DB_PATH) as conn:
         await conn.execute(
-            "INSERT INTO file_events (session_id, timestamp, event_type, file_path, details, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-            (session_id, timestamp, event_type, file_path, json.dumps(details), local_date, local_hour, project, language),
+            "INSERT INTO file_events (session_id, timestamp, event_type, file_path, details, local_date, local_hour, project, language, host) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (session_id, timestamp, event_type, file_path, json.dumps(details), local_date, local_hour, project, language, host),
         )
         if event_type == "edit":
             await conn.execute(
-                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-                (session_id, timestamp, file_path, details.get("lines_added", 0), details.get("lines_deleted", 0), local_date, local_hour, project, language),
+                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language, host) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (session_id, timestamp, file_path, details.get("lines_added", 0), details.get("lines_deleted", 0), local_date, local_hour, project, language, host),
             )
         elif event_type == "write":
             await conn.execute(
-                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language) VALUES (?,?,?,?,?,?,?,?,?)",
-                (session_id, timestamp, file_path, details.get("lines", 0), 0, local_date, local_hour, project, language),
+                "INSERT INTO loc_deltas (session_id, timestamp, file_path, lines_added, lines_deleted, local_date, local_hour, project, language, host) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (session_id, timestamp, file_path, details.get("lines", 0), 0, local_date, local_hour, project, language, host),
             )
         await conn.commit()
         await _upsert_daily_aggregate(conn, local_date)

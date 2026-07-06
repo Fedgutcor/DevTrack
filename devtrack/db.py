@@ -1,10 +1,19 @@
 import aiosqlite
 import logging
+import socket
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 DB_PATH = Path.home() / ".local" / "share" / "devtrack" / "devtrack.sqlite3"
 logger = logging.getLogger("devtrack.db")
+
+# Columnas que se agregan de forma no-destructiva a DBs pre-existentes.
+# Formato: (tabla, columna, tipo_sql). Ver _migrate_columns().
+_HOST_MIGRATIONS = [
+    ("sessions", "host", "TEXT"),
+    ("loc_deltas", "host", "TEXT"),
+    ("file_events", "host", "TEXT"),
+]
 
 SCHEMA = [
     """
@@ -12,7 +21,8 @@ SCHEMA = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         start_time TEXT NOT NULL,
         end_time TEXT,
-        metadata TEXT
+        metadata TEXT,
+        host TEXT
     )
     """,
     """
@@ -27,6 +37,7 @@ SCHEMA = [
         local_hour INTEGER,
         project TEXT,
         language TEXT,
+        host TEXT,
         FOREIGN KEY(session_id) REFERENCES sessions(id)
     )
     """,
@@ -42,6 +53,7 @@ SCHEMA = [
         local_hour INTEGER,
         project TEXT,
         language TEXT,
+        host TEXT,
         FOREIGN KEY(session_id) REFERENCES sessions(id)
     )
     """,
@@ -74,19 +86,44 @@ SCHEMA = [
 ]
 
 
+async def _migrate_columns(db: aiosqlite.Connection) -> None:
+    """Agrega columnas nuevas a DBs pre-existentes (no destructivo).
+
+    Backfillea `host` en filas históricas con el hostname actual: esas filas
+    se generaron en esta máquina antes de que existiera la dimensión host,
+    así que atribuírselas a este equipo es correcto y no pierde datos.
+    """
+    hostname = socket.gethostname()
+    for table, col, col_type in _HOST_MIGRATIONS:
+        cur = await db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        )
+        if not await cur.fetchone():
+            continue
+        cur = await db.execute(f"PRAGMA table_info({table})")
+        existing_cols = {r[1] for r in await cur.fetchall()}
+        if col not in existing_cols:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+            logger.info(f"Migrated: {table}.{col}")
+        await db.execute(f"UPDATE {table} SET {col} = ? WHERE {col} IS NULL", (hostname,))
+    await db.commit()
+
+
 async def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         for sql in SCHEMA:
             await db.execute(sql)
         await db.commit()
+        await _migrate_columns(db)
     logger.info(f"DB initialized at {DB_PATH}")
 
 
-async def create_session(start_time: str) -> int:
+async def create_session(start_time: str, host: Optional[str] = None) -> int:
+    _host = host if host is not None else socket.gethostname()
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO sessions (start_time) VALUES (?)", (start_time,)
+            "INSERT INTO sessions (start_time, host) VALUES (?, ?)", (start_time, _host)
         )
         await db.commit()
         return cursor.lastrowid
