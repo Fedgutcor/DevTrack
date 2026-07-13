@@ -26,6 +26,8 @@ IGNORED_DIRS = {
     ".turbo", ".parcel-cache", ".pnpm-store", "tmp",
 }
 
+TELEMETRY_DIRS = {"data", "logs", "log", "out", "builds", "temp"}
+
 EXT_MAP = {
     '.py': 'Python', '.ts': 'TypeScript', '.tsx': 'TypeScript',
     '.js': 'JavaScript', '.jsx': 'JavaScript', '.go': 'Go',
@@ -41,6 +43,10 @@ MAX_DIFF_BYTES = 2_000_000  # no leer/diffear archivos gigantes (binarios mal de
 
 def _is_ignored(path: Path) -> bool:
     return any(part in IGNORED_DIRS or part.endswith(".egg-info") for part in path.parts)
+
+
+def _is_telemetry(path: Path) -> bool:
+    return any(part in TELEMETRY_DIRS for part in path.parts)
 
 
 def _real_diff(old_lines: list[str], new_lines: list[str]) -> tuple[int, int]:
@@ -67,6 +73,10 @@ class _Handler(FileSystemEventHandler):
         if _is_ignored(p):
             return None
         ext = p.suffix.lower()
+        if ext not in EXT_MAP:
+            return None
+        if _is_telemetry(p):
+            return "Telemetry"
         return EXT_MAP.get(ext)
 
     def _debounced(self, path_str: str) -> bool:
@@ -99,13 +109,19 @@ class _Handler(FileSystemEventHandler):
             self._cache[path_str] = new_lines
 
         if old_lines is None:
-            event_type = "write"
-            lines_added, lines_deleted = len(new_lines), 0
-        else:
-            if old_lines == new_lines:
-                return
-            event_type = "edit"
-            lines_added, lines_deleted = _real_diff(old_lines, new_lines)
+            # Inicialización silenciosa de la caché para evitar contar archivos
+            # preexistentes completos como líneas nuevas.
+            return
+
+        if old_lines == new_lines:
+            return
+
+        event_type = "edit"
+        lines_added, lines_deleted = _real_diff(old_lines, new_lines)
+
+        # Evitar registrar eventos si no hubo cambios reales en las líneas
+        if lines_added == 0 and lines_deleted == 0:
+            return
 
         self._queue.put({
             "event_type": event_type,

@@ -38,13 +38,13 @@ async def _upsert_daily_aggregate(conn: aiosqlite.Connection, target_date: str) 
     total_sessions = (await cur.fetchone())[0]
 
     cur = await conn.execute(
-        "SELECT COUNT(DISTINCT file_path) FROM file_events WHERE local_date = ?", (target_date,)
+        "SELECT COUNT(DISTINCT file_path) FROM file_events WHERE local_date = ? AND language != 'Telemetry'", (target_date,)
     )
     total_files = (await cur.fetchone())[0]
 
     cur = await conn.execute(
         "SELECT COALESCE(SUM(lines_added),0), COALESCE(SUM(lines_deleted),0) "
-        "FROM loc_deltas WHERE local_date = ?", (target_date,)
+        "FROM loc_deltas WHERE local_date = ? AND language != 'Telemetry'", (target_date,)
     )
     row = await cur.fetchone()
     total_added, total_deleted = row[0], row[1]
@@ -446,36 +446,45 @@ async def _get_day_report(target_date: str) -> dict:
         cur = await conn.execute("SELECT COUNT(DISTINCT session_id) as c FROM file_events WHERE local_date=?", (target_date,))
         sessions = (await cur.fetchone())["c"]
 
-        cur = await conn.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != ''", (target_date,))
+        cur = await conn.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != '' AND language != 'Telemetry'", (target_date,))
         files = (await cur.fetchone())["c"]
 
-        cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=?", (target_date,))
+        cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=? AND language != 'Telemetry'", (target_date,))
         row = await cur.fetchone()
         added, deleted = row["a"], row["d"]
+
+        cur = await conn.execute("SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE local_date=? AND language = 'Telemetry'", (target_date,))
+        t_row = await cur.fetchone()
+        telemetry_added, telemetry_deleted = t_row["a"], t_row["d"]
+
+        cur = await conn.execute("SELECT COUNT(*) as c FROM ai_usage WHERE DATE(timestamp)=?", (target_date,))
+        ai_requests = (await cur.fetchone())["c"]
 
         cur = await conn.execute("SELECT COUNT(*) as c FROM file_events WHERE local_date=? AND event_type='bash'", (target_date,))
         commands = (await cur.fetchone())["c"]
 
         cur = await conn.execute(
-            "SELECT file_path, COUNT(*) as edits FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != '' GROUP BY file_path ORDER BY edits DESC LIMIT 5",
+            "SELECT file_path, COUNT(*) as edits FROM file_events WHERE local_date=? AND event_type IN ('edit','write') AND file_path != '' AND language != 'Telemetry' GROUP BY file_path ORDER BY edits DESC LIMIT 5",
             (target_date,),
         )
         top_files = [{"file": r["file_path"], "edits": r["edits"]} async for r in cur]
 
         cur = await conn.execute(
-            "SELECT project, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND project IS NOT NULL GROUP BY project ORDER BY loc DESC LIMIT 6",
+            "SELECT project, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND project IS NOT NULL AND language != 'Telemetry' GROUP BY project ORDER BY loc DESC LIMIT 6",
             (target_date,),
         )
         projects = [{"project": r["project"], "lines": r["loc"]} async for r in cur]
 
         cur = await conn.execute(
-            "SELECT language, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND language IS NOT NULL GROUP BY language ORDER BY loc DESC LIMIT 6",
+            "SELECT language, SUM(lines_added) as loc FROM loc_deltas WHERE local_date=? AND language IS NOT NULL AND language != 'Telemetry' GROUP BY language ORDER BY loc DESC LIMIT 6",
             (target_date,),
         )
         languages = [{"language": r["language"], "lines": r["loc"]} async for r in cur]
 
     return {"date": target_date, "sessions": sessions, "files_touched": files,
-            "lines_added": added, "lines_deleted": deleted, "commands_run": commands,
+            "lines_added": added, "lines_deleted": deleted,
+            "telemetry_added": telemetry_added, "telemetry_deleted": telemetry_deleted,
+            "ai_requests": ai_requests, "commands_run": commands,
             "top_files": top_files, "projects": projects, "languages": languages}
 
 
@@ -589,6 +598,12 @@ def _clean_session(s: dict) -> dict:
 @app.get("/today")
 async def today():
     return await _get_day_report(_local_date_str())
+
+
+@app.get("/api/work-sessions/today")
+async def work_sessions_today():
+    today_str = _local_date_str()
+    return await export_work_sessions(date_from=today_str, date_to=today_str)
 
 
 @app.get("/report")

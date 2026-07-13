@@ -132,6 +132,8 @@ def cmd_today():
 
     added    = t.get("lines_added", 0)
     deleted  = t.get("lines_deleted", 0)
+    telemetry = t.get("telemetry_added", 0)
+    ai_requests = t.get("ai_requests", 0)
     files    = t.get("files_touched", 0)
     commands = t.get("commands_run", 0)
     sessions = t.get("sessions", 0)
@@ -151,9 +153,11 @@ def cmd_today():
     flame = "🔥" if current_streak >= 3 else "·"
     print(f"\n  {flame} streak {BOLD}{C}{current_streak}{RESET} días  {DM}·{RESET}  récord {BOLD}{longest_streak}{RESET} días\n")
 
-    max_v = max(added, deleted, files, 1)
+    max_v = max(added, deleted, telemetry, files, 1)
     print(f"  {G}+{RESET}{BOLD}{added:<6}{RESET} líneas escritas   {hbar(added, max_v)}")
     print(f"  {R}-{RESET}{BOLD}{deleted:<6}{RESET} líneas borradas   {hbar(deleted, max_v, color=R)}")
+    print(f"  {M}T{RESET}{BOLD}{telemetry:<6}{RESET} telemetría/logs   {hbar(telemetry, max_v, color=M)}")
+    print(f"  {Y}A{RESET}{BOLD}{ai_requests:<6}{RESET} consultas IA")
     print(f"  {C}~{RESET}{BOLD}{files:<6}{RESET} archivos tocados  {hbar(files, max_v, color=C)}")
     print(f"  {DIM}>{RESET}{DIM}{commands:<6}{RESET} comandos Bash")
     print(f"  {DIM} {sessions:<6}{RESET} sesiones\n")
@@ -338,6 +342,8 @@ def cmd_report(target_date: str | None = None):
     data = _fetch_report(target_date)
     added    = data.get("lines_added", 0)
     deleted  = data.get("lines_deleted", 0)
+    telemetry = data.get("telemetry_added", 0)
+    ai_requests = data.get("ai_requests", 0)
     files    = data.get("files_touched", 0)
     sessions = data.get("sessions", 0)
     commands = data.get("commands_run", 0)
@@ -349,9 +355,11 @@ def cmd_report(target_date: str | None = None):
     print_logo()
     print(f"  {BOLD}{M}informe · {label}{RESET}\n")
 
-    max_v = max(added, deleted, files, 1)
+    max_v = max(added, deleted, telemetry, files, 1)
     print(f"  {G}+{RESET}{BOLD}{added:<6}{RESET} líneas escritas   {hbar(added, max_v)}")
     print(f"  {R}-{RESET}{BOLD}{deleted:<6}{RESET} líneas borradas   {hbar(deleted, max_v, color=R)}")
+    print(f"  {M}T{RESET}{BOLD}{telemetry:<6}{RESET} telemetría/logs   {hbar(telemetry, max_v, color=M)}")
+    print(f"  {Y}A{RESET}{BOLD}{ai_requests:<6}{RESET} consultas IA")
     print(f"  {C}~{RESET}{BOLD}{files:<6}{RESET} archivos tocados  {hbar(files, max_v, color=C)}")
     print(f"  {DIM}>{RESET}{DIM}{commands:<6}{RESET} comandos  {sessions} sesiones\n")
 

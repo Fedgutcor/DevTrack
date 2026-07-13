@@ -56,6 +56,27 @@
   <div class="summary-box loading" id="aiSummary">Consultando Ollama...</div>
 </div>
 
+<div class="section">
+  <h2>Bloques de Concentración (Hoy)</h2>
+  <table id="sessionsTable">
+    <thead>
+      <tr>
+        <th>Bloque</th>
+        <th>Inicio</th>
+        <th>Fin</th>
+        <th>Duración</th>
+        <th>Cambios Código</th>
+        <th>Archivos</th>
+        <th>Comandos</th>
+        <th>Proyecto Principal</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="8" style="color:#444;text-align:center">Cargando sesiones...</td></tr>
+    </tbody>
+  </table>
+</div>
+
 <footer>devtrack · auto-refresh 30s</footer>
 
 <script>
@@ -73,10 +94,11 @@ function fmtFile(path) {
 }
 
 async function loadDashboard() {
-  const [today, week, files] = await Promise.all([
+  const [today, week, files, workSessions] = await Promise.all([
     fetchJSON('/today'),
     fetchJSON('/week'),
     fetchJSON('/files'),
+    fetchJSON('/api/work-sessions/today'),
   ]);
 
   document.getElementById('subtitle').textContent =
@@ -87,6 +109,8 @@ async function loadDashboard() {
   m.innerHTML = `
     <div class="card"><div class="label">Líneas escritas</div><div class="value green">+${today.lines_added ?? 0}</div><div class="unit">loc hoy</div></div>
     <div class="card"><div class="label">Líneas eliminadas</div><div class="value red">-${today.lines_deleted ?? 0}</div><div class="unit">loc hoy</div></div>
+    <div class="card"><div class="label">Telemetría / Logs</div><div class="value" style="color: #da70d6;">+${today.telemetry_added ?? 0}</div><div class="unit">loc hoy</div></div>
+    <div class="card"><div class="label">Consultas IA</div><div class="value" style="color: #ffaa00;">${today.ai_requests ?? 0}</div><div class="unit">interacciones</div></div>
     <div class="card"><div class="label">Archivos editados</div><div class="value">${today.files_touched ?? 0}</div><div class="unit">archivos</div></div>
     <div class="card"><div class="label">Sesiones</div><div class="value">${today.sessions ?? 0}</div><div class="unit">hoy</div></div>
     <div class="card"><div class="label">Comandos Bash</div><div class="value">${today.commands_run ?? 0}</div><div class="unit">ejecutados</div></div>
@@ -133,6 +157,33 @@ async function loadDashboard() {
         <td>${f.edits}</td>
       </tr>
     `).join('');
+  }
+
+  // Work sessions table
+  const stbody = document.querySelector('#sessionsTable tbody');
+  const sessionsList = workSessions.sessions || [];
+  if (sessionsList.length === 0) {
+    stbody.innerHTML = '<tr><td colspan="8" style="color:#444;text-align:center">Sin sesiones activas hoy</td></tr>';
+  } else {
+    stbody.innerHTML = sessionsList.map(s => {
+      let startTime = '–', endTime = '–';
+      try {
+        startTime = s.start_time.split('T')[1].substring(0, 5);
+        endTime = s.end_time.split('T')[1].substring(0, 5);
+      } catch(e) {}
+      return `
+        <tr>
+          <td>Bloque #${s.session_num}</td>
+          <td>${startTime}</td>
+          <td>${endTime}</td>
+          <td style="color: #5b9cf6; font-weight: bold;">${s.duration_min} min</td>
+          <td class="green">+${s.lines_added} / -${s.lines_deleted}</td>
+          <td>${s.files_changed}</td>
+          <td>${s.bash_commands}</td>
+          <td style="color: #da70d6;">${s.top_project || '–'}</td>
+        </tr>
+      `;
+    }).join('');
   }
 }
 

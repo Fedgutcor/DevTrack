@@ -162,21 +162,27 @@ async def get_today_summary(today: str) -> Dict[str, Any]:
         cur = await db.execute("SELECT COUNT(*) as c FROM sessions WHERE DATE(start_time)=?", (today,))
         sessions = (await cur.fetchone())["c"]
 
-        cur = await db.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE DATE(timestamp)=?", (today,))
+        cur = await db.execute("SELECT COUNT(DISTINCT file_path) as c FROM file_events WHERE DATE(timestamp)=? AND language != 'Telemetry'", (today,))
         files = (await cur.fetchone())["c"]
 
         cur = await db.execute(
-            "SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE DATE(timestamp)=?",
+            "SELECT COALESCE(SUM(lines_added),0) as a, COALESCE(SUM(lines_deleted),0) as d FROM loc_deltas WHERE DATE(timestamp)=? AND language != 'Telemetry'",
             (today,),
         )
         row = await cur.fetchone()
         added, deleted = row["a"], row["d"]
 
+        cur = await db.execute(
+            "SELECT COALESCE(SUM(lines_added),0) as a FROM loc_deltas WHERE DATE(timestamp)=? AND language = 'Telemetry'",
+            (today,),
+        )
+        telemetry_added = (await cur.fetchone())["a"]
+
         cur = await db.execute("SELECT COUNT(*) as c FROM file_events WHERE DATE(timestamp)=? AND event_type='bash'", (today,))
         commands = (await cur.fetchone())["c"]
 
         cur = await db.execute(
-            "SELECT file_path, COUNT(*) as edits FROM file_events WHERE DATE(timestamp)=? AND event_type IN ('edit','write') GROUP BY file_path ORDER BY edits DESC LIMIT 5",
+            "SELECT file_path, COUNT(*) as edits FROM file_events WHERE DATE(timestamp)=? AND event_type IN ('edit','write') AND language != 'Telemetry' GROUP BY file_path ORDER BY edits DESC LIMIT 5",
             (today,),
         )
         top_files = [{"file": r["file_path"], "edits": r["edits"]} async for r in cur]
@@ -187,6 +193,7 @@ async def get_today_summary(today: str) -> Dict[str, Any]:
             "files_touched": files,
             "lines_added": added,
             "lines_deleted": deleted,
+            "telemetry_added": telemetry_added,
             "commands_run": commands,
             "top_files": top_files,
         }
