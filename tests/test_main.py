@@ -69,3 +69,19 @@ def test_post_edit_event_records_host_in_file_events(client):
     rows = _fetchall(db_path, "SELECT host FROM file_events")
     assert len(rows) == 1
     assert rows[0]["host"] == socket.gethostname()
+
+
+def test_detect_project():
+    from devtrack.main import detect_project
+    
+    # Path UNIX con 'projects' en minúsculas
+    assert detect_project("/Users/foo/projects/mi-proyecto/src/main.py") == "mi-proyecto"
+    
+    # Path Windows con 'Projects' en mayúsculas
+    assert detect_project("C:\\Users\\foo\\Projects\\mi-proyecto\\src\\main.py") == "mi-proyecto"
+    
+    # Path UNIX con 'Projects' en mayúsculas
+    assert detect_project("/Users/foo/Projects/otro-proyecto/main.py") == "otro-proyecto"
+    
+    # Path sin projects
+    assert detect_project("/Users/foo/documentos/main.py") is None

@@ -6,14 +6,24 @@ import os
 import shutil
 import subprocess
 import httpx
+import signal
+import webbrowser
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from devtrack.db import DB_PATH as _DB_PATH
 
 BASE = "http://127.0.0.1:17321"
 DASHBOARD_URL = "http://127.0.0.1:17321"
 PLIST_LABEL = "com.ultragresion.devtrack"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
-DB_PATH = str(Path.home() / ".local" / "share" / "devtrack" / "devtrack.sqlite3")
+DB_PATH = str(_DB_PATH)
+
+if sys.platform == "win32":
+    LOG_DIR = Path(_DB_PATH).parent
+    PID_PATH = LOG_DIR / "devtrack.pid"
+else:
+    LOG_DIR = Path.home() / "Library" / "Logs" / "devtrack"
+    PID_PATH = Path(_DB_PATH).parent / "devtrack.pid"
 
 # ANSI 256 colors
 C  = "\x1b[38;5;51m"    # cyan neón
@@ -291,44 +301,98 @@ def cmd_start():
     except Exception:
         pass
 
-    _write_plist(server)
-    result = subprocess.run(
-        ["launchctl", "load", "-w", str(PLIST_PATH)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"\n  {R}✗ Error al cargar LaunchAgent:{RESET}")
-        print(f"  {result.stderr.strip()}\n")
-        sys.exit(1)
+    if sys.platform == "win32":
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_out = open(LOG_DIR / "devtrack.log", "a", encoding="utf-8")
+        log_err = open(LOG_DIR / "devtrack.err", "a", encoding="utf-8")
+        
+        args = [server]
+        if server == sys.executable:
+            args = [sys.executable, "-m", "devtrack.main"]
+            
+        creationflags = 0
+        try:
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        except AttributeError:
+            pass
+            
+        p = subprocess.Popen(
+            args,
+            stdout=log_out,
+            stderr=log_err,
+            creationflags=creationflags,
+            close_fds=True
+        )
+        PID_PATH.write_text(str(p.pid))
+        
+        print(f"\n  {G}✓{RESET} devtrack iniciado en segundo plano (PID {p.pid})")
+        print(f"  {G}✓{RESET} Dashboard → {C}{DASHBOARD_URL}{RESET}")
+        print(f"  {DIM}Logs: {LOG_DIR}{os.sep}devtrack.log{RESET}\n")
+    else:
+        _write_plist(server)
+        result = subprocess.run(
+            ["launchctl", "load", "-w", str(PLIST_PATH)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"\n  {R}✗ Error al cargar LaunchAgent:{RESET}")
+            print(f"  {result.stderr.strip()}\n")
+            sys.exit(1)
 
-    print(f"\n  {G}✓{RESET} devtrack iniciado como LaunchAgent")
-    print(f"  {G}✓{RESET} Dashboard → {C}{DASHBOARD_URL}{RESET}")
-    print(f"  {DIM}Logs: ~/Library/Logs/devtrack/devtrack.log{RESET}\n")
+        print(f"\n  {G}✓{RESET} devtrack iniciado como LaunchAgent")
+        print(f"  {G}✓{RESET} Dashboard → {C}{DASHBOARD_URL}{RESET}")
+        print(f"  {DIM}Logs: ~/Library/Logs/devtrack/devtrack.log{RESET}\n")
 
     # Auto-open browser
-    subprocess.Popen(["open", DASHBOARD_URL])
+    webbrowser.open(DASHBOARD_URL)
 
 
 def cmd_stop():
-    if not PLIST_PATH.exists():
-        print(f"\n  {Y}·{RESET} devtrack no está instalado como LaunchAgent.\n")
-        return
+    if sys.platform == "win32":
+        if not PID_PATH.exists():
+            print(f"\n  {Y}·{RESET} devtrack no está corriendo (no se encontró el archivo PID).\n")
+            return
+        
+        try:
+            pid = int(PID_PATH.read_text().strip())
+        except (ValueError, OSError):
+            print(f"\n  {R}✗ Archivo PID corrupto o ilegible.{RESET}\n")
+            PID_PATH.unlink(missing_ok=True)
+            sys.exit(1)
+            
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"\n  {G}✓{RESET} devtrack (PID {pid}) detenido de forma limpia.")
+        except OSError as e:
+            import errno
+            if e.errno == errno.ESRCH:
+                print(f"\n  {Y}·{RESET} El proceso con PID {pid} ya no existe. Limpiando archivo PID...")
+            else:
+                print(f"\n  {R}✗ No se pudo detener el proceso (PID {pid}):{RESET} {e}")
+                sys.exit(1)
+        finally:
+            PID_PATH.unlink(missing_ok=True)
+        print()
+    else:
+        if not PLIST_PATH.exists():
+            print(f"\n  {Y}·{RESET} devtrack no está instalado como LaunchAgent.\n")
+            return
 
-    result = subprocess.run(
-        ["launchctl", "unload", "-w", str(PLIST_PATH)],
-        capture_output=True, text=True,
-    )
-    PLIST_PATH.unlink(missing_ok=True)
+        result = subprocess.run(
+            ["launchctl", "unload", "-w", str(PLIST_PATH)],
+            capture_output=True, text=True,
+        )
+        PLIST_PATH.unlink(missing_ok=True)
 
-    if result.returncode != 0:
-        print(f"\n  {R}✗ Error al detener:{RESET} {result.stderr.strip()}\n")
-        sys.exit(1)
+        if result.returncode != 0:
+            print(f"\n  {R}✗ Error al detener:{RESET} {result.stderr.strip()}\n")
+            sys.exit(1)
 
-    print(f"\n  {G}✓{RESET} devtrack detenido y LaunchAgent eliminado.\n")
+        print(f"\n  {G}✓{RESET} devtrack detenido y LaunchAgent eliminado.\n")
 
 
 def cmd_open():
-    subprocess.Popen(["open", DASHBOARD_URL])
+    webbrowser.open(DASHBOARD_URL)
     print(f"\n  {G}✓{RESET} Abriendo {C}{DASHBOARD_URL}{RESET}\n")
 
 

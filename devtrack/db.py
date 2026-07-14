@@ -1,10 +1,15 @@
+import sys
+import os
 import aiosqlite
 import logging
 import socket
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-DB_PATH = Path.home() / ".local" / "share" / "devtrack" / "devtrack.sqlite3"
+if sys.platform == "win32":
+    DB_PATH = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "devtrack" / "devtrack.sqlite3"
+else:
+    DB_PATH = Path.home() / ".local" / "share" / "devtrack" / "devtrack.sqlite3"
 logger = logging.getLogger("devtrack.db")
 
 # Columnas que se agregan de forma no-destructiva a DBs pre-existentes.

@@ -84,13 +84,15 @@ EXT_MAP = {
 def detect_project(fp: str) -> str | None:
     if not fp:
         return None
-    p = Path(fp)
+    fp_norm = fp.replace('\\', '/')
+    p = Path(fp_norm)
     for parent in [p.parent] + list(p.parents)[:10]:
-        if (parent / '.git').is_dir():
+        if parent.name and (parent / '.git').is_dir():
             return parent.name
-    parts = fp.split('/')
-    if 'projects' in parts:
-        idx = parts.index('projects')
+    parts = p.parts
+    parts_lower = [part.lower() for part in parts]
+    if 'projects' in parts_lower:
+        idx = parts_lower.index('projects')
         if idx + 1 < len(parts):
             return parts[idx + 1]
     return None
