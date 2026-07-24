@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!-- Reemplazá YOUR_USERNAME y la ruta del proyecto por los reales de tu máquina antes de instalar. -->
 <dict>
     <key>Label</key>
     <string>com.devtrack.fleet-sync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/ultragresion/projects/devtrack/scripts/devtrack-fleet-push.sh</string>
+        <string>/Users/YOUR_USERNAME/projects/devtrack/scripts/devtrack-fleet-push.sh</string>
     </array>
     <key>StartInterval</key>
     <integer>1800</integer>

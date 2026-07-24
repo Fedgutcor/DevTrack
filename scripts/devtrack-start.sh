@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Wrapper de arranque para el daemon DevTrack en nodos de la flota (tentomon,
-# y futuros nodos). Pensado para invocarse desde systemd (Linux) o launchd
-# (macOS) — ver scripts/devtrack.service.example para el unit systemd.
+# Wrapper de arranque para el daemon DevTrack en nodos de tu flota. Pensado
+# para invocarse desde systemd (Linux) o launchd (macOS) — ver
+# scripts/devtrack.service.example para el unit systemd.
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 DEVTRACK_DIR="$HOME/projects/devtrack"
