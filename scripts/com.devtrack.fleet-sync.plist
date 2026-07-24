@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Reemplazá YOUR_USERNAME y la ruta del proyecto por los reales de tu máquina antes de instalar. -->
+<!-- Reemplazá YOUR_USERNAME, la ruta del proyecto, y el valor de
+     DEVTRACK_FLEET_REMOTE por los reales de tu máquina antes de instalar.
+     launchd NO hereda tu shell env, así que DEVTRACK_FLEET_REMOTE tiene que
+     ir declarado acá (EnvironmentVariables) para que
+     devtrack-fleet-push.sh lo vea. -->
 <dict>
     <key>Label</key>
     <string>com.devtrack.fleet-sync</string>
@@ -9,6 +13,11 @@
     <array>
         <string>/Users/YOUR_USERNAME/projects/devtrack/scripts/devtrack-fleet-push.sh</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DEVTRACK_FLEET_REMOTE</key>
+        <string>user@your-remote-host</string>
+    </dict>
     <key>StartInterval</key>
     <integer>1800</integer>
     <key>RunAtLoad</key>

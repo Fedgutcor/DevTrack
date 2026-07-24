@@ -131,13 +131,13 @@ async def test_create_session_records_current_hostname(tmp_db):
 async def test_create_session_accepts_explicit_host_override(tmp_db):
     with patch.object(db_module, "DB_PATH", tmp_db):
         await db_module.init_db()
-        sid = await db_module.create_session("2025-01-01T00:00:00", host="Tentomon")
+        sid = await db_module.create_session("2025-01-01T00:00:00", host="remote-host")
 
     async with aiosqlite.connect(tmp_db) as conn:
         cur = await conn.execute("SELECT host FROM sessions WHERE id=?", (sid,))
         row = await cur.fetchone()
 
-    assert row[0] == "Tentomon"
+    assert row[0] == "remote-host"
 
 
 @pytest.mark.asyncio
