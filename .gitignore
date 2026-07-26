@@ -13,3 +13,10 @@ __pycache__/
 
 .env
 .env.*
+
+# Secretos — cobertura exigida por security_auditor (2026-07-26)
+*.env
+*.pem
+*.key
+*.p12
+secrets.*
