@@ -14,10 +14,28 @@ logger = logging.getLogger("devtrack.db")
 
 # Columnas que se agregan de forma no-destructiva a DBs pre-existentes.
 # Formato: (tabla, columna, tipo_sql). Ver _migrate_columns().
+#
+# `_HOST_MIGRATIONS` además BACKFILLEA las filas históricas con el hostname
+# actual: esas filas se generaron en esta máquina antes de que existiera la
+# dimensión host, así que atribuírselas es correcto.
 _HOST_MIGRATIONS = [
     ("sessions", "host", "TEXT"),
     ("loc_deltas", "host", "TEXT"),
     ("file_events", "host", "TEXT"),
+]
+
+# Columnas que se agregan SIN backfill — no hay valor razonable que inventar
+# para una fila histórica, y `NULL` es la respuesta honesta.
+#
+# `ai_usage` estuvo con 0 filas desde que estas tres columnas entraron a SCHEMA:
+# `CREATE TABLE IF NOT EXISTS` no toca una tabla que ya existe, así que la del
+# disco se quedó en 8 columnas mientras el INSERT de `POST /ai-usage` mandaba
+# 10. Cada request moría con "no such column: local_date" y devolvía HTTP 500,
+# en silencio para quien miraba el dashboard.
+_PLAIN_MIGRATIONS = [
+    ("ai_usage", "local_date", "TEXT"),
+    ("ai_usage", "local_hour", "INTEGER"),
+    ("ai_usage", "tool_calls", "INTEGER DEFAULT 0"),
 ]
 
 SCHEMA = [
@@ -99,7 +117,10 @@ async def _migrate_columns(db: aiosqlite.Connection) -> None:
     así que atribuírselas a este equipo es correcto y no pierde datos.
     """
     hostname = socket.gethostname()
-    for table, col, col_type in _HOST_MIGRATIONS:
+    for table, col, col_type, backfill in (
+        [(t, c, ty, True) for t, c, ty in _HOST_MIGRATIONS]
+        + [(t, c, ty, False) for t, c, ty in _PLAIN_MIGRATIONS]
+    ):
         cur = await db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
         )
@@ -110,7 +131,10 @@ async def _migrate_columns(db: aiosqlite.Connection) -> None:
         if col not in existing_cols:
             await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
             logger.info(f"Migrated: {table}.{col}")
-        await db.execute(f"UPDATE {table} SET {col} = ? WHERE {col} IS NULL", (hostname,))
+        if backfill:
+            await db.execute(
+                f"UPDATE {table} SET {col} = ? WHERE {col} IS NULL", (hostname,)
+            )
     await db.commit()
 
 
