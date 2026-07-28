@@ -24,23 +24,50 @@ LOG_FILE="$HOME/.local/share/devtrack/fleet-sync.log"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# Un fallo de CONFIGURACIÓN no es lo mismo que un fallo de RED. La red se cae
+# sola y se arregla sola: ahí el silencio es correcto (ver cabecera). Pero una
+# variable sin definir no se arregla nunca — y saliendo con 0, launchd reporta
+# éxito para siempre. Pasó: 15 horas de corridas "exitosas" cada 30 min sin
+# enviar un byte, mientras el panel de flota mostraba esta máquina como "sin
+# actividad". Salir != 0 hace que `launchctl list` muestre el código y que el
+# problema sea visible sin leer este log.
 if [ -z "$REMOTE_HOST" ]; then
-  echo "$(date -Iseconds) skip: DEVTRACK_FLEET_REMOTE no está configurado" >> "$LOG_FILE"
-  exit 0
+  echo "$(date -Iseconds) ERROR: DEVTRACK_FLEET_REMOTE no está configurado — nada que sincronizar" >> "$LOG_FILE"
+  echo "devtrack-fleet-push: DEVTRACK_FLEET_REMOTE no está configurado" >&2
+  exit 78  # EX_CONFIG (sysexits.h): error de configuración, no transitorio
 fi
 
 if [ ! -f "$DEVTRACK_DB" ]; then
-  echo "$(date -Iseconds) skip: no existe $DEVTRACK_DB" >> "$LOG_FILE"
-  exit 0
+  echo "$(date -Iseconds) ERROR: no existe $DEVTRACK_DB" >> "$LOG_FILE"
+  echo "devtrack-fleet-push: no existe $DEVTRACK_DB" >&2
+  exit 66  # EX_NOINPUT: falta el origen; tampoco se arregla solo
 fi
 
 ssh -o ConnectTimeout=8 -o BatchMode=yes "$REMOTE_HOST" "mkdir -p $REMOTE_DIR" >/dev/null 2>&1
 
+# Snapshot consistente ANTES de transferir. Rsyncar la .sqlite3 viva falla con
+# "failed verification -- update discarded": DevTrack escribe mientras rsync
+# copia, el checksum del final no coincide con el del principio y la
+# transferencia se descarta entera. Con 121MB de DB eso son minutos de red
+# tirados cada 30 min, y el destino quedándose con el snapshot viejo.
+# `.backup` de sqlite3 produce una copia coherente (respeta el WAL, mismo
+# criterio que ya se usa para los .db del backlog) y, al ser un archivo
+# estático, rsync sí puede verificarla.
+SNAPSHOT="$(mktemp -t devtrack-snapshot)" || exit 74  # EX_IOERR
+trap 'rm -f "$SNAPSHOT" "$SNAPSHOT-wal" "$SNAPSHOT-shm"' EXIT
+
+if ! sqlite3 "$DEVTRACK_DB" ".backup '$SNAPSHOT'" 2>>"$LOG_FILE"; then
+  echo "$(date -Iseconds) ERROR: no se pudo generar el snapshot consistente" >> "$LOG_FILE"
+  echo "devtrack-fleet-push: sqlite3 .backup falló" >&2
+  exit 74  # EX_IOERR: problema local, no transitorio de red
+fi
+
 if rsync -az --timeout=15 -e "ssh -o ConnectTimeout=8 -o BatchMode=yes" \
-    "$DEVTRACK_DB" "$REMOTE_HOST:$REMOTE_DIR/$LOCAL_HOSTNAME.sqlite3" 2>>"$LOG_FILE"; then
-  echo "$(date -Iseconds) ok: sync $LOCAL_HOSTNAME -> $REMOTE_HOST" >> "$LOG_FILE"
+    "$SNAPSHOT" "$REMOTE_HOST:$REMOTE_DIR/$LOCAL_HOSTNAME.sqlite3" 2>>"$LOG_FILE"; then
+  echo "$(date -Iseconds) ok: sync $LOCAL_HOSTNAME -> $REMOTE_HOST ($(wc -c <"$SNAPSHOT") bytes)" >> "$LOG_FILE"
 else
-  echo "$(date -Iseconds) warn: sync fallido (remoto offline o inalcanzable) — reintenta en el próximo ciclo" >> "$LOG_FILE"
+  # Acá sí el silencio es correcto: la red se cae sola y se arregla sola.
+  echo "$(date -Iseconds) warn: rsync fallido (remoto inalcanzable o red caída) — reintenta en el próximo ciclo" >> "$LOG_FILE"
 fi
 
 exit 0
