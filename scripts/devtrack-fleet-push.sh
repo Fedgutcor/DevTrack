@@ -56,7 +56,16 @@ ssh -o ConnectTimeout=8 -o BatchMode=yes "$REMOTE_HOST" "mkdir -p $REMOTE_DIR" >
 SNAPSHOT="$(mktemp -t devtrack-snapshot)" || exit 74  # EX_IOERR
 trap 'rm -f "$SNAPSHOT" "$SNAPSHOT-wal" "$SNAPSHOT-shm"' EXIT
 
-if ! sqlite3 "$DEVTRACK_DB" ".backup '$SNAPSHOT'" 2>>"$LOG_FILE"; then
+# `.timeout` NO es opcional (2026-08-10): sin el busy timeout, `.backup` falla con
+# "Error: database is locked" en cuanto DevTrack esté escribiendo — que es SIEMPRE, porque
+# el daemon escribe de forma continua sobre estos 138MB. El timer corrió durante días
+# devolviendo `sqlite3 .backup falló` y dejando un snapshot de CERO bytes, mientras
+# `launchctl list` mostraba exit 0 y nadie miraba /tmp/devtrack-fleet-sync.err.
+#
+# El comentario de arriba decía "mismo criterio que ya se usa para los .db del backlog", y
+# ahí estaba la trampa: el del backlog lo hace con `Connection.backup()` de Python, que
+# aplica el busy timeout del driver. El CLI no hereda nada — hay que pedírselo.
+if ! sqlite3 -cmd ".timeout 30000" "$DEVTRACK_DB" ".backup '$SNAPSHOT'" 2>>"$LOG_FILE"; then
   echo "$(date -Iseconds) ERROR: no se pudo generar el snapshot consistente" >> "$LOG_FILE"
   echo "devtrack-fleet-push: sqlite3 .backup falló" >&2
   exit 74  # EX_IOERR: problema local, no transitorio de red
