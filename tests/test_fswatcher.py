@@ -168,7 +168,8 @@ def _repo(tmp_path):
 
 def test_creacion_de_archivo_ya_versionado_no_cuenta_como_trabajo(handler, tmp_path):
     """`git worktree add` / `clone` / `checkout` materializan archivos que ya
-    están en el repo. Contarlos infló command-center-wt en +80.059 LOC."""
+    están en el repo. Contarlos metió un worktree entero al reporte:
+    +80.059 LOC en 1.289 archivos que ya estaban versionados."""
     import subprocess
 
     h, q = handler

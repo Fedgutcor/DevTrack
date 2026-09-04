@@ -166,7 +166,8 @@ class _Handler(FileSystemEventHandler):
 
         Un `git worktree add`, un `clone` o un `checkout` materializan archivos
         que el repo YA contiene: aparecen como creados y no son trabajo nuevo.
-        Contarlos infló `command-center-wt` en +80.059 LOC el 2026-09-03.
+        Contarlos metió un worktree entero al reporte como trabajo nuevo:
+        +80.059 LOC en 1.289 archivos que ya estaban versionados.
 
         Se pregunta por directorio y se cachea: en una ráfaga de checkout eso
         es un subproceso por carpeta y no uno por archivo. Fuera de un repo la
