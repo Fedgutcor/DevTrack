@@ -154,3 +154,54 @@ async def test_evento_de_archivo_grande_llega_a_loc_deltas(tmp_path, monkeypatch
     ).fetchall()
     conn.close()
     assert filas == [(25, 0, "HTML")]
+
+
+# --- Una creación por checkout/clone no es trabajo ---
+
+def _repo(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"], check=True)
+    return tmp_path
+
+
+def test_creacion_de_archivo_ya_versionado_no_cuenta_como_trabajo(handler, tmp_path):
+    """`git worktree add` / `clone` / `checkout` materializan archivos que ya
+    están en el repo. Contarlos infló command-center-wt en +80.059 LOC."""
+    import subprocess
+
+    h, q = handler
+    repo = _repo(tmp_path)
+    f = repo / "ya-existente.html"
+    f.write_text("<p>del repo</p>\n" * 50)
+    subprocess.run(["git", "-C", str(repo), "add", "ya-existente.html"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x"], check=True)
+
+    h.on_created(FileCreatedEvent(str(f)))
+
+    assert _drain(q) == [], "un archivo versionado que aparece no es trabajo nuevo"
+
+
+def test_creacion_de_archivo_sin_versionar_si_cuenta(handler, tmp_path):
+    h, q = handler
+    repo = _repo(tmp_path)
+    f = repo / "recien-escrito.html"
+    f.write_text("<p>a</p>\n<p>b</p>\n")
+
+    h.on_created(FileCreatedEvent(str(f)))
+
+    eventos = _drain(q)
+    assert len(eventos) == 1, "un archivo nuevo sin versionar es trabajo real"
+    assert eventos[0]["details"]["lines_added"] == 2
+
+
+def test_creacion_fuera_de_un_repo_git_si_cuenta(handler, tmp_path):
+    """Sin repo no hay checkout posible: un archivo suelto es trabajo."""
+    h, q = handler
+    f = tmp_path / "suelto.html"
+    f.write_text("<p>a</p>\n")
+
+    h.on_created(FileCreatedEvent(str(f)))
+
+    assert len(_drain(q)) == 1

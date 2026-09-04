@@ -10,6 +10,7 @@ import hashlib
 import logging
 import os
 import queue
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -49,6 +50,11 @@ MAX_DIFF_BYTES = 2_000_000
 # Solo se cuenta como creación real si el archivo se tocó hace muy poco.
 CREATION_MAX_AGE_SECONDS = 60.0
 READ_CHUNK = 1 << 20
+#: Cuánto se reusa la lista de archivos versionados de un directorio. Una
+#: operación de VCS materializa cientos de archivos en segundos; sin caché
+#: sería un subproceso git por archivo.
+VCS_CACHE_SECONDS = 10.0
+GIT_TIMEOUT = 5.0
 
 
 def _is_ignored(path: Path) -> bool:
@@ -90,6 +96,7 @@ class _Handler(FileSystemEventHandler):
         self._queue = out_queue
         self._last_seen: dict[str, float] = {}
         self._cache: dict[str, _Snapshot] = {}
+        self._vcs_cache: dict[str, tuple[float, set[str]]] = {}
         self._lock = threading.Lock()
 
     def _should_track(self, path_str: str) -> str | None:
@@ -138,6 +145,45 @@ class _Handler(FileSystemEventHandler):
         except OSError:
             return None
 
+    def _es_versionado(self, path_str: str) -> bool:
+        """¿El archivo ya está en el índice de git de su repo?
+
+        Un `git worktree add`, un `clone` o un `checkout` materializan archivos
+        que el repo YA contiene: aparecen como creados y no son trabajo nuevo.
+        Contarlos infló `command-center-wt` en +80.059 LOC el 2026-09-03.
+
+        Se pregunta por directorio y se cachea: en una ráfaga de checkout eso
+        es un subproceso por carpeta y no uno por archivo. Fuera de un repo la
+        respuesta es False — sin repo no hay checkout posible, así que un
+        archivo suelto se cuenta como trabajo.
+        """
+        directorio = os.path.dirname(path_str)
+        ahora = time.monotonic()
+        with self._lock:
+            entrada = self._vcs_cache.get(directorio)
+            if entrada and (ahora - entrada[0]) < VCS_CACHE_SECONDS:
+                return os.path.basename(path_str) in entrada[1]
+
+        try:
+            proc = subprocess.run(
+                ["git", "-C", directorio, "ls-files", "-z"],
+                capture_output=True, timeout=GIT_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        if proc.returncode != 0:  # no es un repo git
+            versionados: set[str] = set()
+        else:
+            versionados = {
+                nombre.split("/")[-1]
+                for nombre in proc.stdout.decode("utf-8", "ignore").split("\0")
+                if nombre and "/" not in nombre
+            }
+
+        with self._lock:
+            self._vcs_cache[directorio] = (ahora, versionados)
+        return os.path.basename(path_str) in versionados
+
     def _is_fresh(self, path_str: str) -> bool:
         try:
             return (time.time() - os.path.getmtime(path_str)) <= CREATION_MAX_AGE_SECONDS
@@ -165,6 +211,8 @@ class _Handler(FileSystemEventHandler):
             # se inicializa la caché en silencio para no inflar las métricas.
             if not (created and self._is_fresh(path_str)):
                 return
+            if self._es_versionado(path_str):
+                return  # checkout/clone: el repo ya tenía este archivo
             self._emit(path_str, language, "write", snap.n_lines, 0, snap, approx)
             return
 
