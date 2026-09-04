@@ -6,11 +6,13 @@ a una cola thread-safe que un task async drena hacia la misma ruta de
 persistencia que usa POST /events.
 """
 import difflib
+import hashlib
 import logging
 import os
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -38,7 +40,15 @@ EXT_MAP = {
 }
 
 DEBOUNCE_SECONDS = 2.0
-MAX_DIFF_BYTES = 2_000_000  # no leer/diffear archivos gigantes (binarios mal detectados, dumps, etc.)
+# Por encima de este tamaño no se calcula un diff línea a línea (costoso en el
+# handler), pero el archivo SIGUE registrándose: se compara por digest y se
+# reporta el delta de conteo de líneas. Descartarlo lo volvía invisible para
+# siempre — los labs HTML autónomos pesan 3-5 MB.
+MAX_DIFF_BYTES = 2_000_000
+# Un on_created de FSEvents puede llegar por un archivo preexistente (coalescing).
+# Solo se cuenta como creación real si el archivo se tocó hace muy poco.
+CREATION_MAX_AGE_SECONDS = 60.0
+READ_CHUNK = 1 << 20
 
 
 def _is_ignored(path: Path) -> bool:
@@ -47,6 +57,20 @@ def _is_ignored(path: Path) -> bool:
 
 def _is_telemetry(path: Path) -> bool:
     return any(part in TELEMETRY_DIRS for part in path.parts)
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    """Estado conocido de un archivo.
+
+    `lines` es None cuando el archivo supera MAX_DIFF_BYTES: ahí solo se
+    conservan el digest y el conteo de líneas, que alcanzan para saber si
+    cambió y cuánto creció.
+    """
+
+    digest: str
+    n_lines: int
+    lines: list[str] | None
 
 
 def _real_diff(old_lines: list[str], new_lines: list[str]) -> tuple[int, int]:
@@ -65,7 +89,7 @@ class _Handler(FileSystemEventHandler):
     def __init__(self, out_queue: "queue.Queue[dict]"):
         self._queue = out_queue
         self._last_seen: dict[str, float] = {}
-        self._cache: dict[str, list[str]] = {}
+        self._cache: dict[str, _Snapshot] = {}
         self._lock = threading.Lock()
 
     def _should_track(self, path_str: str) -> str | None:
@@ -86,52 +110,88 @@ class _Handler(FileSystemEventHandler):
             self._last_seen[path_str] = now
         return (now - last) < DEBOUNCE_SECONDS
 
-    def _read_lines(self, path_str: str) -> list[str] | None:
+    def _read_snapshot(self, path_str: str) -> _Snapshot | None:
+        """Devuelve el estado del archivo, o None si no se pudo leer.
+
+        Un archivo grande no se descarta: se lee por chunks para obtener
+        digest y conteo de líneas sin cargarlo entero como lista de strings.
+        """
         try:
             if os.path.getsize(path_str) > MAX_DIFF_BYTES:
-                return None
+                digest = hashlib.blake2b(digest_size=16)
+                n_lines = 0
+                tail_nl = True
+                with open(path_str, "rb") as f:
+                    while chunk := f.read(READ_CHUNK):
+                        digest.update(chunk)
+                        n_lines += chunk.count(b"\n")
+                        tail_nl = chunk.endswith(b"\n")
+                if not tail_nl:
+                    n_lines += 1  # última línea sin salto final
+                return _Snapshot(digest.hexdigest(), n_lines, None)
+
             with open(path_str, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read().splitlines()
+                content = f.read()
+            lines = content.splitlines()
+            digest = hashlib.blake2b(content.encode("utf-8"), digest_size=16).hexdigest()
+            return _Snapshot(digest, len(lines), lines)
         except OSError:
             return None
 
-    def _handle(self, path_str: str):
+    def _is_fresh(self, path_str: str) -> bool:
+        try:
+            return (time.time() - os.path.getmtime(path_str)) <= CREATION_MAX_AGE_SECONDS
+        except OSError:
+            return False
+
+    def _handle(self, path_str: str, created: bool = False):
         language = self._should_track(path_str)
         if not language or self._debounced(path_str):
             return
 
-        new_lines = self._read_lines(path_str)
-        if new_lines is None:
+        snap = self._read_snapshot(path_str)
+        if snap is None:
             return
 
         with self._lock:
-            old_lines = self._cache.get(path_str)
-            self._cache[path_str] = new_lines
+            old = self._cache.get(path_str)
+            self._cache[path_str] = snap
 
-        if old_lines is None:
-            # Inicialización silenciosa de la caché para evitar contar archivos
-            # preexistentes completos como líneas nuevas.
+        approx = snap.lines is None or (old is not None and old.lines is None)
+
+        if old is None:
+            # Un archivo desconocido solo cuenta como trabajo nuevo si acaba de
+            # crearse. Si es preexistente (típico tras un restart del daemon),
+            # se inicializa la caché en silencio para no inflar las métricas.
+            if not (created and self._is_fresh(path_str)):
+                return
+            self._emit(path_str, language, "write", snap.n_lines, 0, snap, approx)
             return
 
-        if old_lines == new_lines:
+        if old.digest == snap.digest:
             return
 
-        event_type = "edit"
-        lines_added, lines_deleted = _real_diff(old_lines, new_lines)
+        if approx:
+            added = max(0, snap.n_lines - old.n_lines)
+            deleted = max(0, old.n_lines - snap.n_lines)
+        else:
+            added, deleted = _real_diff(old.lines, snap.lines)
+            if added == 0 and deleted == 0:
+                return
 
-        # Evitar registrar eventos si no hubo cambios reales en las líneas
-        if lines_added == 0 and lines_deleted == 0:
-            return
+        self._emit(path_str, language, "edit", added, deleted, snap, approx)
 
+    def _emit(self, path_str, language, event_type, added, deleted, snap, approx):
         self._queue.put({
             "event_type": event_type,
             "timestamp": None,
             "file_path": path_str,
             "language": language,
             "details": {
-                "lines_added": lines_added,
-                "lines_deleted": lines_deleted,
-                "lines": len(new_lines),
+                "lines_added": added,
+                "lines_deleted": deleted,
+                "lines": snap.n_lines,
+                "diff": "line-count-only" if approx else "real",
                 "source": "fs-watch",
             },
         })
@@ -142,11 +202,11 @@ class _Handler(FileSystemEventHandler):
 
     def on_created(self, event):
         if not event.is_directory:
-            self._handle(event.src_path)
+            self._handle(event.src_path, created=True)
 
     def on_moved(self, event):
         if not event.is_directory:
-            self._handle(event.dest_path)
+            self._handle(event.dest_path, created=True)
 
 
 class FsWatcher:
