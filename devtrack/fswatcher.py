@@ -111,11 +111,27 @@ class _Handler(FileSystemEventHandler):
         return EXT_MAP.get(ext)
 
     def _debounced(self, path_str: str) -> bool:
-        now = time.monotonic()
+        """¿Este evento cae dentro de la ventana del último REGISTRADO?
+
+        El reloj se marca en `_registrado()`, no acá: antes se escribía en cada
+        llamada, incluidas las que terminaban descartadas, así que una ráfaga
+        continua de eventos separados por menos de DEBOUNCE_SECONDS lo reseteaba
+        indefinidamente y el archivo no se registraba NUNCA. Medido con 10s de
+        cambios reales a 1 evento/s: cero registros.
+
+        Con la marca movida al momento del registro, una ráfaga produce un
+        evento por ventana. El último cambio de una ráfaga que después no se
+        vuelve a tocar queda sin registrar hasta el próximo evento del archivo;
+        no se pierde el diff, porque la caché guarda el último snapshot EMITIDO
+        y el evento siguiente recupera el delta completo.
+        """
         with self._lock:
             last = self._last_seen.get(path_str, 0.0)
-            self._last_seen[path_str] = now
-        return (now - last) < DEBOUNCE_SECONDS
+        return (time.monotonic() - last) < DEBOUNCE_SECONDS
+
+    def _registrado(self, path_str: str) -> None:
+        with self._lock:
+            self._last_seen[path_str] = time.monotonic()
 
     def _read_snapshot(self, path_str: str) -> _Snapshot | None:
         """Devuelve el estado del archivo, o None si no se pudo leer.
@@ -230,6 +246,7 @@ class _Handler(FileSystemEventHandler):
         self._emit(path_str, language, "edit", added, deleted, snap, approx)
 
     def _emit(self, path_str, language, event_type, added, deleted, snap, approx):
+        self._registrado(path_str)
         self._queue.put({
             "event_type": event_type,
             "timestamp": None,

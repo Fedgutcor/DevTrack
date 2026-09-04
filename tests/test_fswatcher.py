@@ -8,7 +8,7 @@ import queue
 import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent
 
-from devtrack.fswatcher import MAX_DIFF_BYTES, _Handler
+from devtrack.fswatcher import DEBOUNCE_SECONDS, MAX_DIFF_BYTES, _Handler
 
 
 @pytest.fixture
@@ -205,3 +205,56 @@ def test_creacion_fuera_de_un_repo_git_si_cuenta(handler, tmp_path):
     h.on_created(FileCreatedEvent(str(f)))
 
     assert len(_drain(q)) == 1
+
+
+# --- Bajo ráfaga continua el debounce no debe callarse para siempre ---
+
+@pytest.fixture
+def reloj(monkeypatch):
+    """Reloj controlado: el debounce se prueba con tiempo simulado."""
+    # El parche es de módulo: _es_versionado también lee monotonic para el TTL
+    # de su caché. No afecta a estos tests (van por on_modified, que nunca lo
+    # llama), pero un test de ráfaga con on_created tendría que acotarlo.
+    estado = {"t": 1000.0}
+    monkeypatch.setattr("devtrack.fswatcher.time.monotonic", lambda: estado["t"])
+    return estado
+
+
+def test_rafaga_continua_no_silencia_el_archivo_para_siempre(handler, tmp_path, reloj):
+    """Un editor que emite un evento por segundo reseteaba el reloj en cada uno.
+
+    El archivo cambiaba de verdad en cada paso y solo se registraba el primero:
+    no era un debounce, era un throttle que no volvía a disparar.
+    """
+    h, q = handler
+    f = tmp_path / "en-rafaga.html"
+    f.write_text("<p>0</p>\n")
+    h.on_modified(FileModifiedEvent(str(f)))  # inicializa la caché
+    _drain(q)
+
+    for i in range(1, 11):           # 10 segundos de ráfaga, 1 evento/s
+        reloj["t"] += 1.0
+        f.write_text("<p>x</p>\n" * i)
+        h.on_modified(FileModifiedEvent(str(f)))
+
+    eventos = _drain(q)
+    assert len(eventos) >= 4, (
+        f"10s de cambios reales con ventana de {DEBOUNCE_SECONDS}s deben producir "
+        f"al menos 4 registros; se produjeron {len(eventos)}"
+    )
+
+
+def test_la_ventana_sigue_absorbiendo_las_rafagas_de_autosave(handler, tmp_path, reloj):
+    """Control: varios eventos dentro de la misma ventana siguen colapsando."""
+    h, q = handler
+    f = tmp_path / "autosave.html"
+    f.write_text("<p>0</p>\n")
+    h.on_modified(FileModifiedEvent(str(f)))
+    _drain(q)
+
+    for i in range(1, 6):            # 5 eventos en 0.5s
+        reloj["t"] += 0.1
+        f.write_text("<p>x</p>\n" * i)
+        h.on_modified(FileModifiedEvent(str(f)))
+
+    assert len(_drain(q)) <= 1, "una ráfaga dentro de la ventana no se registra 5 veces"
