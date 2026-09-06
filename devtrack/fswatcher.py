@@ -337,11 +337,21 @@ class FsWatcher:
     """Wrapper sobre watchdog.Observer + drenado async hacia la persistencia de devtrack."""
 
     def __init__(self, roots: list[Path], record_event: Callable[[dict], Awaitable[None]]):
+        # Las raíces declaradas que NO existen se separan en vez de descartarse
+        # en silencio. Antes esto era `[r for r in roots if r.is_dir()]`: un typo
+        # en una ruta desaparecía sin aviso y el watcher arrancaba "OK" vigilando
+        # un universo más chico del que el usuario creía — declarado != vigilado.
         self._roots = [r for r in roots if r.is_dir()]
+        self.missing_roots = [r for r in roots if not r.is_dir()]
         self._record_event = record_event
         self._queue: "queue.Queue[dict]" = queue.Queue()
         self._observer: Observer | None = None
         self._consumer_task = None
+
+    @property
+    def roots(self) -> list[Path]:
+        """Raíces que se están vigilando de verdad (simétrico con `missing_roots`)."""
+        return list(self._roots)
 
     def start(self):
         import asyncio
@@ -356,6 +366,13 @@ class FsWatcher:
             self._observer.schedule(handler, str(root), recursive=True)
         self._observer.start()
         logger.info(f"fswatch: vigilando {[str(r) for r in self._roots]}")
+        if self.missing_roots:
+            logger.warning(
+                "fswatch: %d raíz/raíces DECLARADAS que no existen y NO se están "
+                "vigilando: %s — revisá el archivo de raíces o creá el directorio.",
+                len(self.missing_roots),
+                [str(r) for r in self.missing_roots],
+            )
 
         self._consumer_task = asyncio.create_task(self._consume())
 
@@ -378,8 +395,60 @@ class FsWatcher:
             self._consumer_task.cancel()
 
 
-def default_roots() -> list[Path]:
+# Archivo donde el usuario DECLARA qué raíces se vigilan. Se eligió un archivo
+# (y no sólo una env var) porque la env var no sobrevive a un reinicio del
+# proceso ni queda a la vista: el 2026-09-05 se midió que `DEVTRACK_WATCH_ROOTS`
+# no estaba seteada y nadie lo sabía, así que el watcher llevaba semanas
+# vigilando una sola raíz mientras el trabajo real (actas de cliente,
+# propuestas, clases) se escribía fuera de ella y quedaba invisible.
+ROOTS_CONFIG_PATH = Path.home() / ".config" / "devtrack" / "roots.txt"
+
+# F4 de la doctrina de flota declara DOS raíces por defecto, no una. El default
+# anterior era sólo `~/projects` y por eso `~/apps` nunca se vigiló.
+_FALLBACK_ROOTS = ("projects", "apps")
+
+
+def _parse_roots(lineas) -> list[Path]:
+    """Una ruta por línea; `#` comienza un comentario; se expande `~`.
+
+    Devuelve las rutas SIN filtrar por existencia: quién decide qué hacer con
+    una raíz declarada que falta es `FsWatcher`, que la reporta.
+    """
+    vistos: list[Path] = []
+    for linea in lineas:
+        texto = linea.split("#", 1)[0].strip()
+        if not texto:
+            continue
+        ruta = Path(texto).expanduser()
+        if ruta not in vistos:
+            vistos.append(ruta)
+    return vistos
+
+
+def declared_roots(config_path: Path | None = None) -> list[Path]:
+    """Raíces a vigilar, por precedencia: env var > archivo de config > default.
+
+    `config_path` existe para los tests; en producción se usa
+    `ROOTS_CONFIG_PATH`.
+    """
     env = os.environ.get("DEVTRACK_WATCH_ROOTS")
     if env:
-        return [Path(p).expanduser() for p in env.split(",") if p.strip()]
-    return [Path.home() / "projects"]
+        return _parse_roots(env.split(","))
+
+    cfg = ROOTS_CONFIG_PATH if config_path is None else config_path
+    try:
+        if cfg.is_file():
+            declaradas = _parse_roots(cfg.read_text(encoding="utf-8").splitlines())
+            if declaradas:
+                return declaradas
+    except OSError:
+        # Un archivo de config ilegible no puede dejar al watcher sin raíces:
+        # se cae al default y el arranque lo registra.
+        logger.warning("fswatch: no se pudo leer %s — usando raíces por defecto", cfg)
+
+    return [Path.home() / nombre for nombre in _FALLBACK_ROOTS]
+
+
+def default_roots() -> list[Path]:
+    """Compat: `main.py` la llama sin argumentos."""
+    return declared_roots()
