@@ -23,3 +23,6 @@ secrets.*
 
 # Espacio de trabajo de los tests del watcher (ver tests/conftest.py)
 .espacio-tests/
+
+# log del canario de cobertura (scripts/canario_cobertura.py, diario 09:15)
+logs/
