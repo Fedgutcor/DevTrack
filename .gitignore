@@ -20,3 +20,6 @@ __pycache__/
 *.key
 *.p12
 secrets.*
+
+# Espacio de trabajo de los tests del watcher (ver tests/conftest.py)
+.espacio-tests/
