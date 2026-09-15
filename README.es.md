@@ -32,7 +32,9 @@ Para una guía de instalación más detallada (incluyendo Windows), ver [docs/es
 ## Requisitos
 
 - Python 3.11 o superior
-- macOS (integración con LaunchAgent) o Linux (inicio manual)
+- macOS, Linux o Windows
+  - macOS: arranca como LaunchAgent (sobrevive al logout y se reinicia solo)
+  - Linux y Windows: proceso en segundo plano desacoplado, con archivo PID
 - [Ollama](https://ollama.com) — opcional, para resúmenes IA locales
 
 ---

@@ -31,7 +31,9 @@ Dashboard opens at `http://127.0.0.1:17321`.
 ## Requirements
 
 - Python 3.11+
-- macOS (LaunchAgent integration) or Linux (manual start)
+- macOS, Linux or Windows
+  - macOS: starts as a LaunchAgent (survives logout, restarts itself)
+  - Linux and Windows: detached background process with a PID file
 - [Ollama](https://ollama.com) — optional, for local AI summaries
 
 ---
