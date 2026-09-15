@@ -18,12 +18,69 @@ PLIST_LABEL = "com.ultragresion.devtrack"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 DB_PATH = str(_DB_PATH)
 
+def _habilitar_ansi_windows() -> None:
+    """Habilita las secuencias ANSI en la consola de Windows.
+
+    Sin esto, cmd.exe y las consolas heredadas imprimen los escapes en crudo
+    ("\x1b[38;5;51m") en vez de colorear. Windows Terminal ya lo trae, pero no
+    se puede asumir cual usa la persona.
+    """
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        for handle_id in (-11, -12):  # STDOUT, STDERR
+            handle = kernel32.GetStdHandle(handle_id)
+            modo = ctypes.c_uint32()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(modo)):
+                kernel32.SetConsoleMode(
+                    handle, modo.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                )
+    except Exception:
+        # Si no se puede, se pierde el color; nunca se rompe el comando.
+        pass
+
+
+def _modo_arranque() -> str:
+    """Como se mantiene vivo el daemon en esta plataforma.
+
+    'launchd'  -> macOS, via LaunchAgent (sobrevive al logout y reinicia solo)
+    'proceso'  -> Windows y Linux, proceso desacoplado con PID file
+
+    Antes esto era un `if win32 / else`, asi que Linux caia en la rama de macOS
+    e intentaba correr `launchctl`, que no existe ahi.
+    """
+    if sys.platform == "darwin":
+        return "launchd"
+    return "proceso"
+
+
+def _init_consola() -> bool:
+    """Prepara la consola para los colores. Devuelve True si hizo falta tocarla.
+
+    Vive en su propia funcion (y no suelto al importar) para poder verificar
+    el comportamiento por plataforma sin recargar el modulo.
+    """
+    if sys.platform == "win32":
+        _habilitar_ansi_windows()
+        return True
+    return False
+
+
+_init_consola()
+
+
 if sys.platform == "win32":
     LOG_DIR = Path(_DB_PATH).parent
-    PID_PATH = LOG_DIR / "devtrack.pid"
-else:
+elif sys.platform == "darwin":
     LOG_DIR = Path.home() / "Library" / "Logs" / "devtrack"
-    PID_PATH = Path(_DB_PATH).parent / "devtrack.pid"
+else:  # Linux y otros POSIX: XDG
+    LOG_DIR = Path(
+        os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")
+    ) / "devtrack"
+
+PID_PATH = Path(_DB_PATH).parent / "devtrack.pid"
 
 # ANSI 256 colors
 C  = "\x1b[38;5;51m"    # cyan neón
@@ -259,7 +316,7 @@ def _server_binary() -> str | None:
 
 
 def _write_plist(server_path: str) -> None:
-    log_dir = Path.home() / "Library" / "Logs" / "devtrack"
+    log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -301,7 +358,7 @@ def cmd_start():
     except Exception:
         pass
 
-    if sys.platform == "win32":
+    if _modo_arranque() == "proceso":
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         log_out = open(LOG_DIR / "devtrack.log", "a", encoding="utf-8")
         log_err = open(LOG_DIR / "devtrack.err", "a", encoding="utf-8")
@@ -348,7 +405,7 @@ def cmd_start():
 
 
 def cmd_stop():
-    if sys.platform == "win32":
+    if _modo_arranque() == "proceso":
         if not PID_PATH.exists():
             print(f"\n  {Y}·{RESET} devtrack no está corriendo (no se encontró el archivo PID).\n")
             return

@@ -1,6 +1,6 @@
 [project]
 name = "devtrack-local"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first dev activity tracker — lines written, files edited, AI usage summaries"
 readme = "README.md"
 license = { text = "Apache-2.0" }
