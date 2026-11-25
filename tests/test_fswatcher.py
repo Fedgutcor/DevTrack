@@ -4,10 +4,12 @@ Nivel: el _Handler contra archivos reales en disco. Es donde vive la decisión
 de "esto se registra / esto se descarta", que es el comportamiento en disputa.
 """
 import queue
+import sys
 
 import pytest
-from watchdog.events import FileCreatedEvent, FileModifiedEvent
+from watchdog.events import FileCreatedEvent, FileDeletedEvent, FileModifiedEvent, FileMovedEvent
 
+import devtrack.fswatcher as fswatcher
 from devtrack.fswatcher import DEBOUNCE_SECONDS, MAX_DIFF_BYTES, _Handler
 
 
@@ -268,17 +270,11 @@ def test_la_ventana_sigue_absorbiendo_las_rafagas_de_autosave(handler, espacio_t
 # metía todas de golpe. Medido en un daemon con 9 días encendido: 13 GB de
 # memoria, casi todo en swap.
 
-import sys
-
-from watchdog.events import FileDeletedEvent, FileMovedEvent
-
-import devtrack.fswatcher as fswatcher
-
 
 def _bytes_en_cache(h) -> int:
     """Memoria real de las líneas guardadas, medida desde afuera."""
     return sum(
-        sys.getsizeof(s.lines) + sum(sys.getsizeof(l) for l in s.lines)
+        sys.getsizeof(s.lines) + sum(sys.getsizeof(linea) for linea in s.lines)
         for s in h._cache.values() if s.lines
     )
 

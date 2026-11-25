@@ -119,7 +119,7 @@ class _Handler(FileSystemEventHandler):
         """Memoria que ocupan las líneas guardadas (lo único que pesa)."""
         if not snap.lines:
             return 0
-        return sys.getsizeof(snap.lines) + sum(sys.getsizeof(l) for l in snap.lines)
+        return sys.getsizeof(snap.lines) + sum(sys.getsizeof(linea) for linea in snap.lines)
 
     def _cachear(self, path_str: str, snap: _Snapshot) -> _Snapshot | None:
         """Guarda el snapshot y devuelve el anterior. Llamar con `_lock` tomado.
