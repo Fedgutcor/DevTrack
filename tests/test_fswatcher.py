@@ -279,12 +279,12 @@ def _bytes_en_cache(h) -> int:
     )
 
 
-def test_la_cache_respeta_su_tope_aunque_pasen_miles_de_archivos(handler, tmp_path, monkeypatch):
+def test_la_cache_respeta_su_tope_aunque_pasen_miles_de_archivos(handler, espacio_trabajo, monkeypatch):
     h, _q = handler
     monkeypatch.setattr(fswatcher, "MAX_CACHE_BYTES", 200_000)
     rutas = []
     for i in range(300):
-        p = tmp_path / f"m{i}.py"
+        p = espacio_trabajo / f"m{i}.py"
         p.write_text("".join(f"linea_{i}_{j} = {j}\n" for j in range(40)))
         h.on_modified(FileModifiedEvent(str(p)))
         rutas.append(str(p))
@@ -294,9 +294,9 @@ def test_la_cache_respeta_su_tope_aunque_pasen_miles_de_archivos(handler, tmp_pa
     assert rutas[-1] in h._cache, "lo último visto debe seguir en caché (LRU)"
 
 
-def test_borrar_un_archivo_lo_saca_de_la_cache(handler, tmp_path):
+def test_borrar_un_archivo_lo_saca_de_la_cache(handler, espacio_trabajo):
     h, _q = handler
-    p = tmp_path / "borrable.py"
+    p = espacio_trabajo / "borrable.py"
     p.write_text("a = 1\n")
     h.on_modified(FileModifiedEvent(str(p)))
     assert str(p) in h._cache, "precondición: el archivo entró a la caché"
@@ -307,9 +307,9 @@ def test_borrar_un_archivo_lo_saca_de_la_cache(handler, tmp_path):
     assert str(p) not in h._cache
 
 
-def test_mover_un_archivo_saca_la_ruta_vieja_de_la_cache(handler, tmp_path):
+def test_mover_un_archivo_saca_la_ruta_vieja_de_la_cache(handler, espacio_trabajo):
     h, _q = handler
-    viejo, nuevo = tmp_path / "viejo.py", tmp_path / "nuevo.py"
+    viejo, nuevo = espacio_trabajo / "viejo.py", espacio_trabajo / "nuevo.py"
     viejo.write_text("a = 1\n")
     h.on_modified(FileModifiedEvent(str(viejo)))
     assert str(viejo) in h._cache, "precondición: el archivo entró a la caché"
