@@ -259,3 +259,94 @@ def test_la_ventana_sigue_absorbiendo_las_rafagas_de_autosave(handler, espacio_t
         h.on_modified(FileModifiedEvent(str(f)))
 
     assert len(_drain(q)) <= 1, "una ráfaga dentro de la ventana no se registra 5 veces"
+
+
+# --- Defecto: la caché de snapshots crecía sin tope y nunca se vaciaba ---
+#
+# Cada archivo visto dejaba en `_cache` TODAS sus líneas, y nada las sacaba:
+# ni un tope ni el borrado del archivo. Un checkout de miles de archivos las
+# metía todas de golpe. Medido en un daemon con 9 días encendido: 13 GB de
+# memoria, casi todo en swap.
+
+import sys
+
+from watchdog.events import FileDeletedEvent, FileMovedEvent
+
+import devtrack.fswatcher as fswatcher
+
+
+def _bytes_en_cache(h) -> int:
+    """Memoria real de las líneas guardadas, medida desde afuera."""
+    return sum(
+        sys.getsizeof(s.lines) + sum(sys.getsizeof(l) for l in s.lines)
+        for s in h._cache.values() if s.lines
+    )
+
+
+def test_la_cache_respeta_su_tope_aunque_pasen_miles_de_archivos(handler, tmp_path, monkeypatch):
+    h, _q = handler
+    monkeypatch.setattr(fswatcher, "MAX_CACHE_BYTES", 200_000)
+    rutas = []
+    for i in range(300):
+        p = tmp_path / f"m{i}.py"
+        p.write_text("".join(f"linea_{i}_{j} = {j}\n" for j in range(40)))
+        h.on_modified(FileModifiedEvent(str(p)))
+        rutas.append(str(p))
+
+    assert len(h._cache) < 300, "la caché guardó los 300 archivos: no tiene tope"
+    assert _bytes_en_cache(h) <= 200_000
+    assert rutas[-1] in h._cache, "lo último visto debe seguir en caché (LRU)"
+
+
+def test_borrar_un_archivo_lo_saca_de_la_cache(handler, tmp_path):
+    h, _q = handler
+    p = tmp_path / "borrable.py"
+    p.write_text("a = 1\n")
+    h.on_modified(FileModifiedEvent(str(p)))
+    assert str(p) in h._cache, "precondición: el archivo entró a la caché"
+
+    p.unlink()
+    h.on_deleted(FileDeletedEvent(str(p)))
+
+    assert str(p) not in h._cache
+
+
+def test_mover_un_archivo_saca_la_ruta_vieja_de_la_cache(handler, tmp_path):
+    h, _q = handler
+    viejo, nuevo = tmp_path / "viejo.py", tmp_path / "nuevo.py"
+    viejo.write_text("a = 1\n")
+    h.on_modified(FileModifiedEvent(str(viejo)))
+    assert str(viejo) in h._cache, "precondición: el archivo entró a la caché"
+
+    viejo.rename(nuevo)
+    h.on_moved(FileMovedEvent(str(viejo), str(nuevo)))
+
+    assert str(viejo) not in h._cache
+
+
+def test_las_marcas_de_debounce_vencidas_no_se_acumulan(handler, reloj, monkeypatch):
+    # Una marca más vieja que DEBOUNCE_SECONDS vale lo mismo que no tenerla.
+    h, _q = handler
+    monkeypatch.setattr(fswatcher, "MAX_MARCAS", 50)
+    for i in range(500):
+        h._registrado(f"/x/f{i}.py")
+        reloj["t"] += DEBOUNCE_SECONDS + 1
+
+    assert len(h._last_seen) <= 50 + 1
+
+
+def test_la_cache_de_versionados_no_guarda_entradas_vencidas(handler, reloj, monkeypatch, tmp_path):
+    # Una entrada más vieja que VCS_CACHE_SECONDS nunca se vuelve a usar.
+    h, _q = handler
+    monkeypatch.setattr(fswatcher, "MAX_MARCAS", 50)
+
+    class _Proc:
+        returncode = 0
+        stdout = b"a.py\0"
+
+    monkeypatch.setattr(fswatcher.subprocess, "run", lambda *a, **k: _Proc())
+    for i in range(500):
+        h._es_versionado(str(tmp_path / f"d{i}" / "a.py"))
+        reloj["t"] += fswatcher.VCS_CACHE_SECONDS + 1
+
+    assert len(h._vcs_cache) <= 50 + 1

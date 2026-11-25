@@ -11,8 +11,10 @@ import logging
 import os
 import queue
 import subprocess
+import sys
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -55,6 +57,17 @@ READ_CHUNK = 1 << 20
 #: sería un subproceso git por archivo.
 VCS_CACHE_SECONDS = 10.0
 GIT_TIMEOUT = 5.0
+#: Tope de memoria de la caché de snapshots: las líneas de la última versión
+#: vista de cada archivo, que hacen falta para el diff real. Sin tope crecía con
+#: cada archivo visto y no se vaciaba nunca; un checkout de miles de archivos
+#: las metía todas de golpe (medido: 13 GB en un daemon con 9 días encendido).
+#: Al pasarse se descarta lo usado hace más tiempo: ese archivo, si vuelve a
+#: cambiar, se trata como recién visto (se re-cachea sin sumar líneas).
+MAX_CACHE_BYTES = 64 * 1024 * 1024
+#: Pasado este número de entradas, las marcas de debounce y la caché de
+#: versionados se podan de lo vencido (una entrada vencida vale lo mismo que
+#: no tenerla). Sin poda crecían con cada archivo y directorio visto.
+MAX_MARCAS = 4096
 
 
 def _is_ignored(path: Path) -> bool:
@@ -95,9 +108,41 @@ class _Handler(FileSystemEventHandler):
     def __init__(self, out_queue: "queue.Queue[dict]"):
         self._queue = out_queue
         self._last_seen: dict[str, float] = {}
-        self._cache: dict[str, _Snapshot] = {}
+        # LRU acotada por MAX_CACHE_BYTES; ver `_cachear`.
+        self._cache: "OrderedDict[str, _Snapshot]" = OrderedDict()
+        self._cache_bytes = 0
         self._vcs_cache: dict[str, tuple[float, set[str]]] = {}
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _peso(snap: _Snapshot) -> int:
+        """Memoria que ocupan las líneas guardadas (lo único que pesa)."""
+        if not snap.lines:
+            return 0
+        return sys.getsizeof(snap.lines) + sum(sys.getsizeof(l) for l in snap.lines)
+
+    def _cachear(self, path_str: str, snap: _Snapshot) -> _Snapshot | None:
+        """Guarda el snapshot y devuelve el anterior. Llamar con `_lock` tomado.
+
+        Al pasarse de MAX_CACHE_BYTES descarta lo usado hace más tiempo; nunca
+        el que se acaba de guardar."""
+        old = self._cache.pop(path_str, None)
+        if old is not None:
+            self._cache_bytes -= self._peso(old)
+        self._cache[path_str] = snap
+        self._cache_bytes += self._peso(snap)
+        while self._cache_bytes > MAX_CACHE_BYTES and len(self._cache) > 1:
+            _, fuera = self._cache.popitem(last=False)
+            self._cache_bytes -= self._peso(fuera)
+        return old
+
+    def _olvidar(self, path_str: str) -> None:
+        """El archivo ya no existe en esa ruta: nada que comparar después."""
+        with self._lock:
+            old = self._cache.pop(path_str, None)
+            if old is not None:
+                self._cache_bytes -= self._peso(old)
+            self._last_seen.pop(path_str, None)
 
     def _should_track(self, path_str: str) -> str | None:
         p = Path(path_str)
@@ -130,8 +175,13 @@ class _Handler(FileSystemEventHandler):
         return (time.monotonic() - last) < DEBOUNCE_SECONDS
 
     def _registrado(self, path_str: str) -> None:
+        ahora = time.monotonic()
         with self._lock:
-            self._last_seen[path_str] = time.monotonic()
+            self._last_seen[path_str] = ahora
+            if len(self._last_seen) > MAX_MARCAS:
+                self._last_seen = {
+                    p: t for p, t in self._last_seen.items() if ahora - t < DEBOUNCE_SECONDS
+                }
 
     def _read_snapshot(self, path_str: str) -> _Snapshot | None:
         """Devuelve el estado del archivo, o None si no se pudo leer.
@@ -199,6 +249,10 @@ class _Handler(FileSystemEventHandler):
 
         with self._lock:
             self._vcs_cache[directorio] = (ahora, versionados)
+            if len(self._vcs_cache) > MAX_MARCAS:
+                self._vcs_cache = {
+                    d: e for d, e in self._vcs_cache.items() if ahora - e[0] < VCS_CACHE_SECONDS
+                }
         return os.path.basename(path_str) in versionados
 
     def _is_fresh(self, path_str: str) -> bool:
@@ -217,10 +271,9 @@ class _Handler(FileSystemEventHandler):
             return
 
         with self._lock:
-            old = self._cache.get(path_str)
-            self._cache[path_str] = snap
+            old = self._cachear(path_str, snap)
 
-        approx = snap.lines is None or (old is not None and old.lines is None)
+        approx =snap.lines is None or (old is not None and old.lines is None)
 
         if old is None:
             # Un archivo desconocido solo cuenta como trabajo nuevo si acaba de
@@ -272,7 +325,12 @@ class _Handler(FileSystemEventHandler):
 
     def on_moved(self, event):
         if not event.is_directory:
+            self._olvidar(event.src_path)
             self._handle(event.dest_path, created=True)
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self._olvidar(event.src_path)
 
 
 class FsWatcher:
