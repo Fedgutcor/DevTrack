@@ -32,6 +32,19 @@ IGNORED_DIRS = {
 }
 
 TELEMETRY_DIRS = {"data", "logs", "log", "out", "builds", "temp"}
+#: Un directorio cuyo nombre TERMINA en esto es salida de un generador, igual
+#: que `out/`. La comparación de TELEMETRY_DIRS es por componente exacto, así
+#: que `graphify-out` no era `out` y su contenido entraba como código fuente:
+#: el 2026-09-18 un solo `graphify-out/graph.json` aportó 1.190.572 de las
+#: 1.295.712 "líneas escritas" del día. Se exige el separador para no atrapar
+#: `layout/`, `checkout/` ni `about/`.
+TELEMETRY_DIR_SUFFIXES = ("-out", "_out", "-dist", "_dist")
+#: Los temporales que el canario de cobertura siembra en cada raíz. Se
+#: CLASIFICAN, no se ignoran: el canario comprueba su propia cobertura
+#: consultando `file_events` sin filtrar por `language`, así que descartarlos
+#: lo dejaría reportando "no registró" en las tres raíces para siempre — el
+#: detector cegándose a sí mismo.
+CANARY_PREFIX = ".devtrack-canario-"
 
 EXT_MAP = {
     '.py': 'Python', '.ts': 'TypeScript', '.tsx': 'TypeScript',
@@ -75,7 +88,12 @@ def _is_ignored(path: Path) -> bool:
 
 
 def _is_telemetry(path: Path) -> bool:
-    return any(part in TELEMETRY_DIRS for part in path.parts)
+    if path.name.startswith(CANARY_PREFIX):
+        return True
+    return any(
+        part in TELEMETRY_DIRS or part.endswith(TELEMETRY_DIR_SUFFIXES)
+        for part in path.parts[:-1]
+    )
 
 
 @dataclass(frozen=True)

@@ -346,3 +346,60 @@ def test_la_cache_de_versionados_no_guarda_entradas_vencidas(handler, reloj, mon
         reloj["t"] += fswatcher.VCS_CACHE_SECONDS + 1
 
     assert len(h._vcs_cache) <= 50 + 1
+
+# --- Clasificación de artefactos generados (2026-09-18) -------------------
+#
+# Origen: el dashboard reportó 1.295.712 "líneas escritas" en un día, de las
+# cuales 1.190.572 venían de UN evento sobre `graphify-out/graph.json`: la
+# salida de un generador, no trabajo humano. `TELEMETRY_DIRS` ya contenía
+# "out", pero la comparación es por igualdad de componente y `graphify-out`
+# no es `out`, así que el archivo se clasificó como JSON y entró a la métrica
+# de titular.
+#
+# Se clasifica, no se descarta: descartar volvería el archivo invisible para
+# siempre, que es la decisión que `MAX_DIFF_BYTES` ya documenta en contra.
+
+GRAPH_OUT = (
+    "/home/usuario/projects/mi-app-wt/una-rama"
+    "/graphify-out/graph.json"
+)
+
+
+def _tracker() -> _Handler:
+    return _Handler(queue.Queue())
+
+
+def test_directorio_con_sufijo_out_es_telemetria():
+    """`graphify-out/` es salida de un generador, como `out/`."""
+    assert _tracker()._should_track(GRAPH_OUT) == "Telemetry"
+
+
+def test_sufijo_out_con_guion_bajo_tambien():
+    ruta = "/home/usuario/projects/proj/render_out/data.json"
+    assert _tracker()._should_track(ruta) == "Telemetry"
+
+
+def test_los_temporales_del_canario_no_cuentan_como_proyecto():
+    """El detector no debe contaminar la métrica que él mismo vigila.
+
+    Se clasifican como telemetría y NO se ignoran: el canario verifica su
+    propia cobertura consultando `file_events` sin filtrar por `language`,
+    así que ignorarlos lo dejaría ciego (reportaría "no registró" en las
+    tres raíces, para siempre).
+    """
+    ruta = "/home/usuario/projects/.devtrack-canario-1789711746009.md"
+    assert _tracker()._should_track(ruta) == "Telemetry"
+
+
+def test_un_out_que_es_parte_de_una_palabra_no_es_telemetria():
+    """Control negativo: `layout/`, `checkout/` y `routes/` NO son salidas."""
+    for d in ("layout", "checkout", "routes", "about"):
+        ruta = f"/home/usuario/projects/app/{d}/index.ts"
+        assert _tracker()._should_track(ruta) == "TypeScript", d
+
+
+def test_el_codigo_fuente_normal_sigue_contando():
+    """Control positivo: sin él, un `_should_track` que devuelva siempre
+    'Telemetry' pasaría los tres tests de arriba."""
+    ruta = "/home/usuario/projects/devtrack/devtrack/main.py"
+    assert _tracker()._should_track(ruta) == "Python"
